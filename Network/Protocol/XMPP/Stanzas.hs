@@ -14,12 +14,26 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 -}
 
-module Main () where
+module Network.Protocol.XMPP.Stanzas (
+	 Stanza
+	) where
 
-import Test.HUnit
-import Tests.Core (coreTests)
+import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 
-allTests = "allTests" ~: TestList [coreTests]
+class Stanza a where
+	stanzaXML :: a -> XmlTree
 
-main = do
-	runTestTT allTests
+data Message = Message
+
+data Presence = Presence
+
+data IQ = IQ
+
+instance Stanza Message where
+	stanzaXML s = undefined
+
+instance Stanza Presence where
+	stanzaXML s = undefined
+
+instance Stanza IQ where
+	stanzaXML s = undefined

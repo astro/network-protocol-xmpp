@@ -1,4 +1,4 @@
-{- Copyright (C) 2009 John Millikin <jmillikin@gmail.com>
+/* Copyright (C) 2009 John Millikin <jmillikin@gmail.com>
    
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,14 +12,20 @@
    
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
--}
+*/
 
-module Main () where
+#include <libxml/parser.h>
 
-import Test.HUnit
-import Tests.Core (coreTests)
+typedef struct _IncrementalParser IncrementalParser;
 
-allTests = "allTests" ~: TestList [coreTests]
+IncrementalParser *
+incremental_parser_new ();
 
-main = do
-	runTestTT allTests
+void
+incremental_parser_free (IncrementalParser *);
+
+int
+incremental_parse (IncrementalParser *, const char *, int,
+                   startElementNsSAX2Func,
+                   endElementNsSAX2Func,
+                   charactersSAXFunc);
