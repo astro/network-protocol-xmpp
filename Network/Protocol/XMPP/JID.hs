@@ -72,9 +72,9 @@ jidBuild :: String -> String -> String -> Maybe JID
 jidBuild nodeStr domainStr resourceStr = let
 	node = jidNodeBuild nodeStr
 	resource = jidResourceBuild resourceStr
-	in case (jidDomainBuild domainStr) of
-		Nothing -> Nothing
-		(Just domain) -> Just (JID node domain resource)
+	in do
+		domain <- jidDomainBuild domainStr
+		Just (JID node domain resource)
 
 -- TODO: validate input according to RFC 3920, section 3.1
 jidParse :: String -> Maybe JID
