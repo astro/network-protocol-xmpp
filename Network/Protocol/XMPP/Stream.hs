@@ -21,8 +21,14 @@ module Network.Protocol.XMPP.Stream (
 	 	,streamVersion
 	 	,streamFeatures
 	 	)
+	,StreamFeature (
+		 FeatureStartTLS
+		,FeatureSASL
+		,FeatureRegister
+		)
 	,beginStream
-	,send
+	,getTree
+	,putTree
 	) where
 
 import qualified System.IO as IO
@@ -37,7 +43,9 @@ import Text.XML.HXT.DOM.Util (attrEscapeXml)
 import Text.XML.HXT.Arrow ((>>>), (>>.))
 import Data.Tree.NTree.TypeDefs (NTree(NTree))
 import qualified Text.XML.HXT.Arrow as A
+
 import Network.Protocol.XMPP.JID (JID)
+import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
 import Network.Protocol.XMPP.Stanzas (Stanza)
 import Network.Protocol.XMPP.XMLBuilder (eventsToTree)
 
@@ -55,16 +63,13 @@ data Stream = Stream
 
 data StreamFeature =
 	  FeatureStartTLS Bool
-	| FeatureSASL [SASLMechanism]
+	| FeatureSASL [Mechanism]
 	| FeatureRegister
 	| FeatureUnknown XmlTree
 	| FeatureDebug String
 	deriving (Show, Eq)
 
 newtype XMLLanguage = XMLLanguage String
-	deriving (Show, Eq)
-
-newtype SASLMechanism = SASLMechanism String
 	deriving (Show, Eq)
 
 data XMPPVersion = XMPPVersion Int Int
@@ -87,12 +92,15 @@ beginStream jid host handle = do
 		" to='" ++ (attrEscapeXml . show) jid ++ "'" ++
 		" version='1.0'" ++
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
-	
 	IO.hFlush handle
 	
-	xmlChars <- hGetChars handle 100
-	events <- (XML.incrementalParse parser xmlChars)
+	events <- readEventsUntil endOfFeatures handle parser 1000
 	return $ beginStream' handle parser events
+	where
+		featuresName = QN.mkNsName "features" "http://etherx.jabber.org/streams"
+		endOfFeatures depth event = case (depth, event) of
+			(1, (XML.EndElement featuresName)) -> True
+			otherwise -> False
 
 beginStream' handle parser (streamStart:events) = let
 	-- TODO: parse from streamStart
@@ -135,22 +143,48 @@ parseFeatureSASL t = let
 	
 	-- TODO: validate mechanism names according to SASL rules
 	-- <20 chars, uppercase, alphanum, etc
-	in FeatureSASL [SASLMechanism n | n <- rawMechanisms]
+	in FeatureSASL (map findMechanism rawMechanisms)
 
 -------------------------------------------------------------------------------
 
-send :: (Stanza s) => Stream -> s -> IO ()
-send = undefined
+getTree :: Stream -> IO XmlTree
+getTree s = do
+	events <- readEventsUntil finished (streamHandle s) (streamParser s) 1000
+	return $ eventsToTree events
+	where
+		finished 0 (XML.EndElement _) = True
+		finished _ _ = False
+
+putTree :: Stream -> XmlTree -> IO ()
+putTree s t = do
+	let root = XN.mkRoot [] [t]
+	let h = streamHandle s
+	[text] <- A.runX (A.constA root >>> A.writeDocumentToString [
+		(A.a_no_xml_pi, "1")
+		])
+	IO.hPutStr h text
+	IO.hFlush h
 
 -------------------------------------------------------------------------------
 
-hGetChars :: IO.Handle -> Int -> IO String
-hGetChars h timeout = do
-	have_input <- IO.hWaitForInput h timeout
-	case have_input of
-		False -> return []
-		True -> do
-			chr <- IO.hGetChar h
-			next <- hGetChars h timeout
-			return $ chr : next
+readEventsUntil :: (Int -> XML.Event -> Bool) -> IO.Handle -> XML.Parser -> Int -> IO [XML.Event]
+readEventsUntil done h parser timeout = readEventsUntil' done 0 [] $ do
+	char <- IO.hGetChar h
+	XML.incrementalParse parser [char]
 
+readEventsUntil' done depth accum getEvents = do
+	events <- getEvents
+	let (done', depth', accum') = readEventsStep done events depth accum
+	if done'
+		then return accum'
+		else readEventsUntil' done depth' accum' getEvents
+
+readEventsStep _ [] depth accum = (False, depth, accum)
+readEventsStep done (e:es) depth accum = let
+	depth' = depth + case e of
+		(XML.BeginElement _ _) -> 1
+		(XML.EndElement _) -> (- 1)
+		otherwise -> 0
+	accum' = accum ++ [e]
+	in if done depth' e then (True, depth', accum')
+	else readEventsStep done es depth' accum'

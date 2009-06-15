@@ -24,13 +24,19 @@ module Network.Protocol.XMPP.Client (
 
 import System.IO (Handle)
 import Network (HostName, PortID, connectTo)
+import Text.XML.HXT.Arrow ((>>>))
+import qualified Text.XML.HXT.Arrow as A
+import qualified Text.XML.HXT.DOM.XmlNode as XN
+import qualified Text.XML.HXT.DOM.QualifiedName as QN
+
 import Network.Protocol.XMPP.JID (JID)
-import Network.Protocol.XMPP.Stream (beginStream, streamFeatures)
+import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
+import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Stanzas (Stanza)
 
-data ConnectedClient = ConnectedClient JID Handle
+data ConnectedClient = ConnectedClient JID S.Stream
 
-data AuthenticatedClient = AuthenticatedClient Handle HostName PortID
+data AuthenticatedClient = AuthenticatedClient JID S.Stream
 
 type Username = String
 type Password = String
@@ -38,13 +44,42 @@ type Password = String
 clientConnect :: JID -> HostName -> PortID -> IO ConnectedClient
 clientConnect jid host port = do
 	handle <- connectTo host port
-	stream <- beginStream jid host handle
-	putStrLn $ "streamFeatures = " ++ (show (streamFeatures stream))
-	return $ ConnectedClient jid handle
+	stream <- S.beginStream jid host handle
+	
+	-- TODO: TLS support
+	
+	return $ ConnectedClient jid stream
 
-clientAuthenticate :: ConnectedClient -> Username -> Password -> AuthenticatedClient
-clientAuthenticate = undefined
+clientAuthenticate :: ConnectedClient -> Username -> Password -> IO AuthenticatedClient
+clientAuthenticate (ConnectedClient jid stream) username password = let
+	mechanisms = (advertisedMechanisms . S.streamFeatures) stream
+	saslMechanism = case bestMechanism mechanisms of
+		Nothing -> error "No supported SASL mechanism"
+		Just m -> m
+	in do
+		putStrLn $ "mechanism = " ++ (show saslMechanism)
+		
+		-- TODO: use detected mechanism
+		S.putTree stream $ XN.mkElement
+			(QN.mkName "auth")
+			[
+				 XN.mkAttr (QN.mkName "xmlns") [XN.mkText "urn:ietf:params:xml:ns:xmpp-sasl"]
+				,XN.mkAttr (QN.mkName "mechanism") [XN.mkText "PLAIN"]
+			]
+			[XN.mkText "="]
+		
+		response <- S.getTree stream
+		putStrLn $ "response:"
+		A.runX (A.constA response >>> A.putXmlTree "-")
+		
+		return $ AuthenticatedClient jid stream
 
 clientSend :: (Stanza s) => AuthenticatedClient -> s -> IO ()
 clientSend = undefined
+
+advertisedMechanisms :: [S.StreamFeature] -> [Mechanism]
+advertisedMechanisms [] = []
+advertisedMechanisms (f:fs) = case f of
+	(S.FeatureSASL ms) -> ms
+	otherwise -> advertisedMechanisms fs
 
