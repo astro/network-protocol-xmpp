@@ -23,6 +23,7 @@ module Network.Protocol.XMPP.Client (
 	) where
 
 import System.IO (Handle)
+import Codec.Binary.Base64.String (encode)
 import Network (HostName, PortID, connectTo)
 import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
@@ -50,8 +51,8 @@ clientConnect jid host port = do
 	
 	return $ ConnectedClient jid stream
 
-clientAuthenticate :: ConnectedClient -> Username -> Password -> IO AuthenticatedClient
-clientAuthenticate (ConnectedClient jid stream) username password = let
+clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO AuthenticatedClient
+clientAuthenticate (ConnectedClient _ stream) jid username password = let
 	mechanisms = (advertisedMechanisms . S.streamFeatures) stream
 	saslMechanism = case bestMechanism mechanisms of
 		Nothing -> error "No supported SASL mechanism"
@@ -60,17 +61,23 @@ clientAuthenticate (ConnectedClient jid stream) username password = let
 		putStrLn $ "mechanism = " ++ (show saslMechanism)
 		
 		-- TODO: use detected mechanism
+		
+		let saslText = concat [(show jid), "\x00", username, "\x00", password]
+		let b64Text = encode saslText
+		
 		S.putTree stream $ XN.mkElement
 			(QN.mkName "auth")
 			[
 				 XN.mkAttr (QN.mkName "xmlns") [XN.mkText "urn:ietf:params:xml:ns:xmpp-sasl"]
 				,XN.mkAttr (QN.mkName "mechanism") [XN.mkText "PLAIN"]
 			]
-			[XN.mkText "="]
+			[XN.mkText b64Text]
 		
 		response <- S.getTree stream
 		putStrLn $ "response:"
 		A.runX (A.constA response >>> A.putXmlTree "-")
+		
+		-- TODO: check if response is success or failure
 		
 		return $ AuthenticatedClient jid stream
 
