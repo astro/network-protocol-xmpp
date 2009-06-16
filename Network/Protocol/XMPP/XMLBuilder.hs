@@ -56,4 +56,4 @@ blockToTree (begin:rest) = let end = (last rest) in case (begin, end) of
 	fff -> error ("Got unexpected: " ++ (show fff))
 
 convertAttr :: XML.Attribute -> XmlTree
-convertAttr (XML.Attribute qname value) = XN.NTree (XN.mkAttrNode qname) []
+convertAttr (XML.Attribute qname value) = XN.NTree (XN.mkAttrNode qname) [XN.mkText value]
