@@ -16,8 +16,7 @@
 
 module Network.Protocol.XMPP.Stream (
 	 Stream (
-	 	 streamHostName
-	 	,streamLanguage
+	 	 streamLanguage
 	 	,streamVersion
 	 	,streamFeatures
 	 	)
@@ -32,7 +31,6 @@ module Network.Protocol.XMPP.Stream (
 	) where
 
 import qualified System.IO as IO
-import Network (HostName, PortID, connectTo)
 import qualified Network.Protocol.XMPP.IncrementalXML as XML
 import Data.AssocList (lookupDef)
 import qualified Text.XML.HXT.DOM.QualifiedName as QN
@@ -46,7 +44,6 @@ import qualified Text.XML.HXT.Arrow as A
 
 import Network.Protocol.XMPP.JID (JID)
 import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
-import Network.Protocol.XMPP.Stanzas (Stanza)
 import Network.Protocol.XMPP.XMLBuilder (eventsToTree)
 
 maxXMPPVersion = XMPPVersion 1 0
@@ -55,7 +52,6 @@ data Stream = Stream
 	{
 		 streamHandle :: IO.Handle
 		,streamParser :: XML.Parser
-		,streamHostName :: HostName
 		,streamLanguage :: XMLLanguage
 		,streamVersion :: XMPPVersion
 		,streamFeatures :: [StreamFeature]
@@ -77,11 +73,9 @@ data XMPPVersion = XMPPVersion Int Int
 
 -------------------------------------------------------------------------------
 
-beginStream :: JID -> HostName -> IO.Handle -> IO Stream
-beginStream jid host handle = do
+beginStream :: JID -> IO.Handle -> IO Stream
+beginStream jid handle = do
 	parser <- XML.newParser
-	
-	IO.hSetBuffering handle IO.NoBuffering
 	
 	-- Since only the opening tag should be written, normal XML
 	-- serialization cannot be used. Be careful to escape any embedded
@@ -105,7 +99,6 @@ beginStream jid host handle = do
 
 beginStream' handle parser streamStart featureTree = let
 	-- TODO: parse from streamStart
-	host = "localhost"
 	language = XMLLanguage "en"
 	version = XMPPVersion 1 0
 	
@@ -118,7 +111,7 @@ beginStream' handle parser streamStart featureTree = let
 		[] -> []
 		(t:_) -> map parseFeature (A.runLA A.getChildren t)
 	
-	in Stream handle parser host language version features
+	in Stream handle parser language version features
 
 parseFeature :: XmlTree -> StreamFeature
 parseFeature t = lookupDef FeatureUnknown qname [

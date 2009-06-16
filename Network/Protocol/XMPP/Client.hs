@@ -22,7 +22,7 @@ module Network.Protocol.XMPP.Client (
 	,clientSend
 	) where
 
-import System.IO (Handle)
+import System.IO (hSetBuffering, BufferMode(NoBuffering), Handle)
 import Codec.Binary.Base64.String (encode)
 import Network (HostName, PortID, connectTo)
 import Text.XML.HXT.Arrow ((>>>))
@@ -35,9 +35,9 @@ import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Stanzas (Stanza)
 
-data ConnectedClient = ConnectedClient JID S.Stream
+data ConnectedClient = ConnectedClient JID S.Stream Handle
 
-data AuthenticatedClient = AuthenticatedClient JID S.Stream
+data AuthenticatedClient = AuthenticatedClient JID JID S.Stream Handle
 
 type Username = String
 type Password = String
@@ -45,14 +45,16 @@ type Password = String
 clientConnect :: JID -> HostName -> PortID -> IO ConnectedClient
 clientConnect jid host port = do
 	handle <- connectTo host port
-	stream <- S.beginStream jid host handle
+	hSetBuffering handle NoBuffering
+	
+	stream <- S.beginStream jid handle
 	
 	-- TODO: TLS support
 	
-	return $ ConnectedClient jid stream
+	return $ ConnectedClient jid stream handle
 
 clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO AuthenticatedClient
-clientAuthenticate (ConnectedClient _ stream) jid username password = let
+clientAuthenticate (ConnectedClient serverJID stream h) jid username password = let
 	mechanisms = (advertisedMechanisms . S.streamFeatures) stream
 	saslMechanism = case bestMechanism mechanisms of
 		Nothing -> error "No supported SASL mechanism"
@@ -79,7 +81,9 @@ clientAuthenticate (ConnectedClient _ stream) jid username password = let
 		
 		-- TODO: check if response is success or failure
 		
-		return $ AuthenticatedClient jid stream
+		newStream <- S.beginStream serverJID h
+		putStrLn $ "features = " ++ (show . S.streamFeatures) newStream
+		return $ AuthenticatedClient serverJID jid newStream h
 
 clientSend :: (Stanza s) => AuthenticatedClient -> s -> IO ()
 clientSend = undefined
