@@ -94,15 +94,16 @@ beginStream jid host handle = do
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
 	IO.hFlush handle
 	
-	events <- readEventsUntil endOfFeatures handle parser 1000
-	return $ beginStream' handle parser events
+	[startStreamEvent] <- readEventsUntil startOfStream handle parser 1000
+	featureTree <- getTree' handle parser
+	return $ beginStream' handle parser startStreamEvent featureTree
 	where
-		featuresName = QN.mkNsName "features" "http://etherx.jabber.org/streams"
-		endOfFeatures depth event = case (depth, event) of
-			(1, (XML.EndElement featuresName)) -> True
+		streamName = QN.mkNsName "stream" "http://etherx.jabber.org/streams"
+		startOfStream depth event = case (depth, event) of
+			(1, (XML.BeginElement streamName _)) -> True
 			otherwise -> False
 
-beginStream' handle parser (streamStart:events) = let
+beginStream' handle parser streamStart featureTree = let
 	-- TODO: parse from streamStart
 	host = "localhost"
 	language = XMLLanguage "en"
@@ -110,10 +111,9 @@ beginStream' handle parser (streamStart:events) = let
 	
 	featuresName = QN.mkNsName "features" "http://etherx.jabber.org/streams"
 	
-	eventTree = eventsToTree events
 	featureRoots = A.runLA (
 		A.getChildren
-		>>> A.hasQName featuresName) eventTree
+		>>> A.hasQName featuresName) featureTree
 	features = case featureRoots of
 		[] -> []
 		(t:_) -> map parseFeature (A.runLA A.getChildren t)
@@ -148,8 +148,11 @@ parseFeatureSASL t = let
 -------------------------------------------------------------------------------
 
 getTree :: Stream -> IO XmlTree
-getTree s = do
-	events <- readEventsUntil finished (streamHandle s) (streamParser s) 1000
+getTree s = getTree' (streamHandle s) (streamParser s)
+
+getTree' :: IO.Handle -> XML.Parser -> IO XmlTree
+getTree' h p = do
+	events <- readEventsUntil finished h p 1000
 	return $ eventsToTree events
 	where
 		finished 0 (XML.EndElement _) = True
