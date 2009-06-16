@@ -24,6 +24,8 @@ module Network.Protocol.XMPP.Stream (
 		 FeatureStartTLS
 		,FeatureSASL
 		,FeatureRegister
+		,FeatureBind
+		,FeatureSession
 		)
 	,beginStream
 	,getTree
@@ -61,6 +63,8 @@ data StreamFeature =
 	  FeatureStartTLS Bool
 	| FeatureSASL [Mechanism]
 	| FeatureRegister
+	| FeatureBind
+	| FeatureSession
 	| FeatureUnknown XmlTree
 	| FeatureDebug String
 	deriving (Show, Eq)
@@ -118,6 +122,8 @@ parseFeature t = lookupDef FeatureUnknown qname [
 	 (("urn:ietf:params:xml:ns:xmpp-tls", "starttls"), parseFeatureTLS)
 	,(("urn:ietf:params:xml:ns:xmpp-sasl", "mechanisms"), parseFeatureSASL)
 	,(("http://jabber.org/features/iq-register", "register"), (\_ -> FeatureRegister))
+	,(("urn:ietf:params:xml:ns:xmpp-bind", "bind"), (\_ -> FeatureBind))
+	,(("urn:ietf:params:xml:ns:xmpp-session", "session"), (\_ -> FeatureSession))
 	] t
 	where
 		qname = maybe ("", "") (\n -> (QN.namespaceUri n, QN.localPart n)) (XN.getName t)
