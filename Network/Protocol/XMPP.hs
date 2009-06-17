@@ -17,11 +17,7 @@
 module Network.Protocol.XMPP (
 	 module Network.Protocol.XMPP.JID
 	,module Network.Protocol.XMPP.Client
-	,module Network.Protocol.XMPP.Stream
-	,module Network.Protocol.XMPP.Stanzas
 	) where
 
 import Network.Protocol.XMPP.JID
 import Network.Protocol.XMPP.Client
-import Network.Protocol.XMPP.Stream
-import Network.Protocol.XMPP.Stanzas

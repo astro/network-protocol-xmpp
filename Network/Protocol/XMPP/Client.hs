@@ -19,7 +19,9 @@ module Network.Protocol.XMPP.Client (
 	,AuthenticatedClient
 	,clientConnect
 	,clientAuthenticate
-	,clientSend
+	,clientBind
+	,putTree
+	,getTree
 	) where
 
 import System.IO (hSetBuffering, BufferMode(NoBuffering), Handle)
@@ -27,6 +29,7 @@ import Codec.Binary.Base64.String (encode)
 import Network (HostName, PortID, connectTo)
 import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
+import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 import qualified Text.XML.HXT.DOM.QualifiedName as QN
 
@@ -60,33 +63,49 @@ clientAuthenticate (ConnectedClient serverJID stream h) jid username password = 
 		Nothing -> error "No supported SASL mechanism"
 		Just m -> m
 	in do
-		putStrLn $ "mechanism = " ++ (show saslMechanism)
-		
 		-- TODO: use detected mechanism
 		
 		let saslText = concat [(show jid), "\x00", username, "\x00", password]
 		let b64Text = encode saslText
 		
-		S.putTree stream $ XN.mkElement
-			(QN.mkName "auth")
-			[
-				 XN.mkAttr (QN.mkName "xmlns") [XN.mkText "urn:ietf:params:xml:ns:xmpp-sasl"]
-				,XN.mkAttr (QN.mkName "mechanism") [XN.mkText "PLAIN"]
-			]
+		S.putTree stream $ mkElement ("", "auth")
+			[ ("", "xmlns", "urn:ietf:params:xml:ns:xmpp-sasl")
+			 ,("", "mechanism", "PLAIN")]
 			[XN.mkText b64Text]
 		
 		response <- S.getTree stream
-		putStrLn $ "response:"
-		A.runX (A.constA response >>> A.putXmlTree "-")
 		
 		-- TODO: check if response is success or failure
 		
 		newStream <- S.beginStream serverJID h
-		putStrLn $ "features = " ++ (show . S.streamFeatures) newStream
 		return $ AuthenticatedClient serverJID jid newStream h
 
-clientSend :: (Stanza s) => AuthenticatedClient -> s -> IO ()
-clientSend = undefined
+clientBind :: AuthenticatedClient -> IO ()
+clientBind c@(AuthenticatedClient _ _ stream h) = do
+	-- Bind
+	-- TODO: request specific resource
+	-- TODO: set ID to random value, and check bind result for JID
+	-- TODO: return JID from server
+	putTree c $ mkElement ("", "iq")
+		[("", "type", "set")]
+		[ mkElement ("", "bind")
+		  	[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-bind")]
+		  	[]]
+	
+	bindResult <- getTree c
+	
+	-- Session
+	putTree c $ mkElement ("", "iq")
+		[("", "type", "set")]
+		[mkElement ("", "session")
+			[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-session")]
+			[]]
+	
+	sessionResult <- getTree c
+	
+	putTree c $ mkElement ("", "presence") [] []
+	getTree c
+	return ()
 
 advertisedMechanisms :: [S.StreamFeature] -> [Mechanism]
 advertisedMechanisms [] = []
@@ -94,3 +113,23 @@ advertisedMechanisms (f:fs) = case f of
 	(S.FeatureSASL ms) -> ms
 	otherwise -> advertisedMechanisms fs
 
+-------------------------------------------------------------------------------
+
+putTree :: AuthenticatedClient -> XmlTree -> IO ()
+putTree (AuthenticatedClient _ _ s _) = S.putTree s
+
+getTree :: AuthenticatedClient -> IO XmlTree
+getTree (AuthenticatedClient _ _ s _) = S.getTree s
+
+-- Utility function for building XML trees
+mkElement :: (String, String) -> [(String, String, String)] -> [XmlTree] -> XmlTree
+mkElement (ns, localpart) attrs children = let
+	qname = mkQname ns localpart
+	attrs' = [mkAttr ans alp text | (ans, alp, text) <- attrs]
+	in XN.mkElement qname attrs' children
+
+mkAttr ns localpart text = XN.mkAttr (mkQname ns localpart) [XN.mkText text]
+
+mkQname ns localpart = case ns of
+	"" -> QN.mkName localpart
+	otherwise -> QN.mkNsName ns localpart
