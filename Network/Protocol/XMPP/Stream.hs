@@ -46,7 +46,7 @@ import qualified Text.XML.HXT.Arrow as A
 
 import Network.Protocol.XMPP.JID (JID)
 import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
-import Network.Protocol.XMPP.XMLBuilder (eventsToTree)
+import Network.Protocol.XMPP.Util (eventsToTree, mkQName, mkElement)
 
 maxXMPPVersion = XMPPVersion 1 0
 
@@ -96,7 +96,7 @@ beginStream jid handle = do
 	featureTree <- getTree' handle parser
 	return $ beginStream' handle parser startStreamEvent featureTree
 	where
-		streamName = QN.mkNsName "stream" "http://etherx.jabber.org/streams"
+		streamName = mkQName "http://etherx.jabber.org/streams" "stream"
 		startOfStream depth event = case (depth, event) of
 			(1, (XML.BeginElement streamName _)) -> True
 			otherwise -> False
@@ -106,7 +106,7 @@ beginStream' handle parser streamStart featureTree = let
 	language = XMLLanguage "en"
 	version = XMPPVersion 1 0
 	
-	featuresName = QN.mkNsName "features" "http://etherx.jabber.org/streams"
+	featuresName = mkQName "http://etherx.jabber.org/streams" "features"
 	
 	featureRoots = A.runLA (
 		A.getChildren
@@ -133,7 +133,7 @@ parseFeatureTLS t = FeatureStartTLS True -- TODO: detect whether or not required
 
 parseFeatureSASL :: XmlTree -> StreamFeature
 parseFeatureSASL t = let
-	mechName = QN.mkNsName "mechanism" "urn:ietf:params:xml:ns:xmpp-sasl"
+	mechName = mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "mechanism"
 	rawMechanisms = A.runLA (
 		A.getChildren
 		>>> A.hasQName mechName

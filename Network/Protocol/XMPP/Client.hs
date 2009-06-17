@@ -37,6 +37,7 @@ import Network.Protocol.XMPP.JID (JID)
 import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Stanzas (Stanza)
+import Network.Protocol.XMPP.Util (mkElement)
 
 data ConnectedClient = ConnectedClient JID S.Stream Handle
 
@@ -121,15 +122,3 @@ putTree (AuthenticatedClient _ _ s _) = S.putTree s
 getTree :: AuthenticatedClient -> IO XmlTree
 getTree (AuthenticatedClient _ _ s _) = S.getTree s
 
--- Utility function for building XML trees
-mkElement :: (String, String) -> [(String, String, String)] -> [XmlTree] -> XmlTree
-mkElement (ns, localpart) attrs children = let
-	qname = mkQname ns localpart
-	attrs' = [mkAttr ans alp text | (ans, alp, text) <- attrs]
-	in XN.mkElement qname attrs' children
-
-mkAttr ns localpart text = XN.mkAttr (mkQname ns localpart) [XN.mkText text]
-
-mkQname ns localpart = case ns of
-	"" -> QN.mkName localpart
-	otherwise -> QN.mkNsName ns localpart

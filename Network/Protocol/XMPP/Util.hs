@@ -14,13 +14,21 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 -}
 
-module Network.Protocol.XMPP.XMLBuilder (
+module Network.Protocol.XMPP.Util (
 	 eventsToTree
+	,mkElement
+	,mkAttr
+	,mkQName
 	) where
 
 import qualified Text.XML.HXT.DOM.XmlNode as XN
+import qualified Text.XML.HXT.DOM.QualifiedName as QN
 import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Network.Protocol.XMPP.IncrementalXML as XML
+
+-------------------------------------------------------------------------------
+-- For converting incremental XML event lists to HXT trees
+-------------------------------------------------------------------------------
 
 -- This function assumes the input list is valid. No validation is performed.
 eventsToTree :: [XML.Event] -> XmlTree
@@ -57,3 +65,19 @@ blockToTree (begin:rest) = let end = (last rest) in case (begin, end) of
 
 convertAttr :: XML.Attribute -> XmlTree
 convertAttr (XML.Attribute qname value) = XN.NTree (XN.mkAttrNode qname) [XN.mkText value]
+
+-------------------------------------------------------------------------------
+-- Utility function for building XML trees
+-------------------------------------------------------------------------------
+
+mkElement :: (String, String) -> [(String, String, String)] -> [XmlTree] -> XmlTree
+mkElement (ns, localpart) attrs children = let
+	qname = mkQName ns localpart
+	attrs' = [mkAttr ans alp text | (ans, alp, text) <- attrs]
+	in XN.mkElement qname attrs' children
+
+mkAttr ns localpart text = XN.mkAttr (mkQName ns localpart) [XN.mkText text]
+
+mkQName ns localpart = case ns of
+	"" -> QN.mkName localpart
+	otherwise -> QN.mkNsName ns localpart
