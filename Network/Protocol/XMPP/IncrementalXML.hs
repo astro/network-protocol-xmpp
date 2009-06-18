@@ -63,7 +63,7 @@ incrementalParse (Parser autoptr) s = do
 checkReturn :: CInt -> [Event] -> [Event]
 checkReturn r es = es ++ case r of
 	0 -> []
-	otherwise -> [ParseError (show r)]
+	_ -> [ParseError (show r)]
 
 withFunPtr :: a -> (a -> IO (F.FunPtr a)) -> (F.FunPtr a -> IO b) -> IO b
 withFunPtr f mkPtr block = bracket (mkPtr f) F.freeHaskellFunPtr block

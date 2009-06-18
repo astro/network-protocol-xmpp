@@ -89,9 +89,12 @@ jidFormat (JID node (JIDDomain domain) resource) = let
 	resourceStr = maybe "" (\(JIDResource s) -> "/" ++ s) resource
 	in concat [nodeStr, domain, resourceStr]
 
+split :: (Eq a) => [a] -> a -> ([a], [a])
 split xs final = let
 	(before, rawAfter) = span (/= final) xs
-	after = case rawAfter of
-		[] -> []
-		xs -> tail xs
+	after = safeTail rawAfter
 	in (before, after)
+
+safeTail :: [a] -> [a]
+safeTail [] = []
+safeTail (_:xs) = xs

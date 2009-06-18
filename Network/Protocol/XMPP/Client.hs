@@ -20,23 +20,22 @@ module Network.Protocol.XMPP.Client (
 	,clientConnect
 	,clientAuthenticate
 	,clientBind
+	,clientJID
+	,clientServerJID
 	,putTree
 	,getTree
 	) where
 
-import System.IO (hSetBuffering, BufferMode(NoBuffering), Handle)
 import Codec.Binary.Base64.String (encode)
 import Network (HostName, PortID, connectTo)
 import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
 import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
-import qualified Text.XML.HXT.DOM.QualifiedName as QN
 
 import Network.Protocol.XMPP.JID (JID, jidParse)
 import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
 import qualified Network.Protocol.XMPP.Stream as S
-import Network.Protocol.XMPP.Stanzas (Stanza)
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
 
 data ConnectedClient = ConnectedClient JID S.Stream
@@ -53,8 +52,6 @@ type Password = String
 clientConnect :: JID -> HostName -> PortID -> IO ConnectedClient
 clientConnect jid host port = do
 	handle <- connectTo host port
-	hSetBuffering handle NoBuffering
-	
 	stream <- S.beginStream jid handle
 	return $ ConnectedClient jid stream
 
@@ -100,7 +97,7 @@ clientBind c = do
 		>>> A.getText) bindResult
 	let jid = case jidParse rawJID of
 		Just x -> x
-		otherwise -> error "Couldn't parse server's returned JID"
+		_ -> error "Couldn't parse server's returned JID"
 	
 	-- Session
 	putTree c $ mkElement ("", "iq")
@@ -109,7 +106,7 @@ clientBind c = do
 			[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-session")]
 			[]]
 	
-	sessionResult <- getTree c
+	getTree c
 	
 	putTree c $ mkElement ("", "presence") [] []
 	getTree c
@@ -119,7 +116,7 @@ advertisedMechanisms :: [S.StreamFeature] -> [Mechanism]
 advertisedMechanisms [] = []
 advertisedMechanisms (f:fs) = case f of
 	(S.FeatureSASL ms) -> ms
-	otherwise -> advertisedMechanisms fs
+	_ -> advertisedMechanisms fs
 
 -------------------------------------------------------------------------------
 

@@ -34,16 +34,14 @@ module Network.Protocol.XMPP.Stream (
 	) where
 
 import qualified System.IO as IO
-import qualified Network.Protocol.XMPP.IncrementalXML as XML
 import Data.AssocList (lookupDef)
-import qualified Text.XML.HXT.DOM.QualifiedName as QN
-import qualified Text.XML.HXT.DOM.XmlNode as XN
-import Text.XML.HXT.DOM.TypeDefs (XmlTree)
-import Text.XML.HXT.DOM.FormatXmlTree (formatXmlTree)
-import Text.XML.HXT.DOM.Util (attrEscapeXml)
-import Text.XML.HXT.Arrow ((>>>), (>>.))
-import Data.Tree.NTree.TypeDefs (NTree(NTree))
+
+-- XML Parsing
+import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
+import qualified Text.XML.HXT.DOM.Interface as DOM
+import qualified Text.XML.HXT.DOM.XmlNode as XN
+import qualified Network.Protocol.XMPP.IncrementalXML as XML
 
 -- TLS support
 import qualified Network.GnuTLS as GnuTLS
@@ -54,6 +52,7 @@ import Network.Protocol.XMPP.JID (JID)
 import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
 import Network.Protocol.XMPP.Util (eventsToTree, mkQName, mkElement)
 
+maxXMPPVersion :: XMPPVersion
 maxXMPPVersion = XMPPVersion 1 0
 
 data Stream = Stream
@@ -72,8 +71,7 @@ data StreamFeature =
 	| FeatureRegister
 	| FeatureBind
 	| FeatureSession
-	| FeatureUnknown XmlTree
-	| FeatureDebug String
+	| FeatureUnknown DOM.XmlTree
 	deriving (Show, Eq)
 
 newtype XMLLanguage = XMLLanguage String
@@ -93,6 +91,8 @@ restartStream s = beginStream' (streamJID s) (streamHandle s)
 
 beginStream :: JID -> IO.Handle -> IO Stream
 beginStream jid rawHandle = do
+	IO.hSetBuffering rawHandle IO.NoBuffering
+	
 	plainStream <- beginStream' jid (PlainHandle rawHandle)
 	
 	putTree plainStream $ mkElement ("", "starttls")
@@ -116,13 +116,13 @@ beginStream' jid h = do
 	let xmlHeader =
 		"<?xml version='1.0'?>\n" ++
 		"<stream:stream xmlns='jabber:client'" ++
-		" to='" ++ (attrEscapeXml . show) jid ++ "'" ++
+		" to='" ++ (DOM.attrEscapeXml . show) jid ++ "'" ++
 		" version='1.0'" ++
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
 	
 	parser <- XML.newParser
 	hPutStr h xmlHeader
-	[startStreamEvent] <- readEventsUntil startOfStream h parser 1000
+	[startStreamEvent] <- readEventsUntil startOfStream h parser
 	featureTree <- getTree' h parser
 	
 	let (language, version) = parseStartStream startStreamEvent
@@ -134,13 +134,13 @@ beginStream' jid h = do
 		streamName = mkQName "http://etherx.jabber.org/streams" "stream"
 		
 		startOfStream depth event = case (depth, event) of
-			(1, (XML.BeginElement streamName _)) -> True
-			otherwise -> False
+			(1, (XML.BeginElement elemName _)) -> streamName == elemName
+			_ -> False
 
 parseStartStream :: XML.Event -> (XMLLanguage, XMPPVersion)
 parseStartStream e = (XMLLanguage "en", XMPPVersion 1 0) -- TODO
 
-parseFeatures :: XmlTree -> [StreamFeature]
+parseFeatures :: DOM.XmlTree -> [StreamFeature]
 parseFeatures t =
 	A.runLA (A.getChildren
 		>>> A.hasQName featuresName
@@ -149,7 +149,7 @@ parseFeatures t =
 	where
 		featuresName = mkQName "http://etherx.jabber.org/streams" "features"
 
-parseFeature :: XmlTree -> StreamFeature
+parseFeature :: DOM.XmlTree -> StreamFeature
 parseFeature t = lookupDef FeatureUnknown qname [
 	 (("urn:ietf:params:xml:ns:xmpp-tls", "starttls"), parseFeatureTLS)
 	,(("urn:ietf:params:xml:ns:xmpp-sasl", "mechanisms"), parseFeatureSASL)
@@ -158,12 +158,12 @@ parseFeature t = lookupDef FeatureUnknown qname [
 	,(("urn:ietf:params:xml:ns:xmpp-session", "session"), (\_ -> FeatureSession))
 	] t
 	where
-		qname = maybe ("", "") (\n -> (QN.namespaceUri n, QN.localPart n)) (XN.getName t)
+		qname = maybe ("", "") (\n -> (DOM.namespaceUri n, DOM.localPart n)) (XN.getName t)
 
-parseFeatureTLS :: XmlTree -> StreamFeature
+parseFeatureTLS :: DOM.XmlTree -> StreamFeature
 parseFeatureTLS t = FeatureStartTLS True -- TODO: detect whether or not required
 
-parseFeatureSASL :: XmlTree -> StreamFeature
+parseFeatureSASL :: DOM.XmlTree -> StreamFeature
 parseFeatureSASL t = let
 	mechName = mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "mechanism"
 	rawMechanisms = A.runLA (
@@ -178,18 +178,18 @@ parseFeatureSASL t = let
 
 -------------------------------------------------------------------------------
 
-getTree :: Stream -> IO XmlTree
+getTree :: Stream -> IO DOM.XmlTree
 getTree s = getTree' (streamHandle s) (streamParser s)
 
-getTree' :: Handle -> XML.Parser -> IO XmlTree
+getTree' :: Handle -> XML.Parser -> IO DOM.XmlTree
 getTree' h p = do
-	events <- readEventsUntil finished h p 1000
+	events <- readEventsUntil finished h p
 	return $ eventsToTree events
 	where
 		finished 0 (XML.EndElement _) = True
 		finished _ _ = False
 
-putTree :: Stream -> XmlTree -> IO ()
+putTree :: Stream -> DOM.XmlTree -> IO ()
 putTree s t = do
 	let root = XN.mkRoot [] [t]
 	let h = streamHandle s
@@ -200,11 +200,12 @@ putTree s t = do
 
 -------------------------------------------------------------------------------
 
-readEventsUntil :: (Int -> XML.Event -> Bool) -> Handle -> XML.Parser -> Int -> IO [XML.Event]
-readEventsUntil done h parser timeout = readEventsUntil' done 0 [] $ do
+readEventsUntil :: (Int -> XML.Event -> Bool) -> Handle -> XML.Parser -> IO [XML.Event]
+readEventsUntil done h parser = readEventsUntil' done 0 [] $ do
 	char <- hGetChar h
 	XML.incrementalParse parser [char]
 
+readEventsUntil' :: (Int -> XML.Event -> Bool) -> Int -> [XML.Event] -> IO [XML.Event] -> IO [XML.Event]
 readEventsUntil' done depth accum getEvents = do
 	events <- getEvents
 	let (done', depth', accum') = readEventsStep done events depth accum
@@ -212,12 +213,13 @@ readEventsUntil' done depth accum getEvents = do
 		then return accum'
 		else readEventsUntil' done depth' accum' getEvents
 
+readEventsStep :: (Int -> XML.Event -> Bool) -> [XML.Event] -> Int -> [XML.Event] -> (Bool, Int, [XML.Event])
 readEventsStep _ [] depth accum = (False, depth, accum)
 readEventsStep done (e:es) depth accum = let
 	depth' = depth + case e of
 		(XML.BeginElement _ _) -> 1
 		(XML.EndElement _) -> (- 1)
-		otherwise -> 0
+		_ -> 0
 	accum' = accum ++ [e]
 	in if done depth' e then (True, depth', accum')
 	else readEventsStep done es depth' accum'

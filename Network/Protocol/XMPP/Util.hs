@@ -43,6 +43,9 @@ eventsToTrees es = map blockToTree (splitBlocks es)
 splitBlocks :: [XML.Event] -> [[XML.Event]]
 splitBlocks es = ret where (_, _, ret) = foldl splitBlocks' (0, [], []) es
 
+splitBlocks' :: (Int, [XML.Event], [[XML.Event]])
+                -> XML.Event
+                -> (Int, [XML.Event], [[XML.Event]])
 splitBlocks' (depth, accum, allAccum) e =
 	if depth' == 0 then
 		(depth', [], allAccum ++ [accum'])
@@ -53,9 +56,10 @@ splitBlocks' (depth, accum, allAccum) e =
 		depth' = depth + case e of
 			(XML.BeginElement _ _) -> 1
 			(XML.EndElement _) -> (- 1)
-			otherwise -> 0
+			_ -> 0
 
 blockToTree :: [XML.Event] -> XmlTree
+blockToTree [] = error "No blocks"
 blockToTree (begin:rest) = let end = (last rest) in case (begin, end) of
 	(XML.BeginElement qname attrs, XML.EndElement _) ->
 		XN.mkElement qname (map convertAttr attrs) (eventsToTrees (init rest))
@@ -82,4 +86,4 @@ mkAttr ns localpart text = XN.mkAttr (mkQName ns localpart) [XN.mkText text]
 mkQName :: String -> String -> QN.QName
 mkQName ns localpart = case ns of
 	"" -> QN.mkName localpart
-	otherwise -> QN.mkNsName localpart ns
+	_ -> QN.mkNsName localpart ns
