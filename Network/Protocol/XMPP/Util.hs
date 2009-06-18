@@ -76,8 +76,10 @@ mkElement (ns, localpart) attrs children = let
 	attrs' = [mkAttr ans alp text | (ans, alp, text) <- attrs]
 	in XN.mkElement qname attrs' children
 
+mkAttr :: String -> String -> String -> XmlTree
 mkAttr ns localpart text = XN.mkAttr (mkQName ns localpart) [XN.mkText text]
 
+mkQName :: String -> String -> QN.QName
 mkQName ns localpart = case ns of
 	"" -> QN.mkName localpart
-	otherwise -> QN.mkNsName ns localpart
+	otherwise -> QN.mkNsName localpart ns
