@@ -16,7 +16,7 @@
 
 module Network.Protocol.XMPP.Client (
 	 ConnectedClient
-	,AuthenticatedClient
+	,Client
 	,clientConnect
 	,clientAuthenticate
 	,clientBind
@@ -33,15 +33,20 @@ import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 import qualified Text.XML.HXT.DOM.QualifiedName as QN
 
-import Network.Protocol.XMPP.JID (JID)
+import Network.Protocol.XMPP.JID (JID, jidParse)
 import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Stanzas (Stanza)
-import Network.Protocol.XMPP.Util (mkElement)
+import Network.Protocol.XMPP.Util (mkElement, mkQName)
 
 data ConnectedClient = ConnectedClient JID S.Stream Handle
 
-data AuthenticatedClient = AuthenticatedClient JID JID S.Stream Handle
+data Client = Client {
+	 clientJID       :: JID
+	,clientServerJID :: JID
+	,clientStream    :: S.Stream
+	,clientHandle    :: Handle
+	}
 
 type Username = String
 type Password = String
@@ -57,7 +62,7 @@ clientConnect jid host port = do
 	
 	return $ ConnectedClient jid stream handle
 
-clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO AuthenticatedClient
+clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO Client
 clientAuthenticate (ConnectedClient serverJID stream h) jid username password = let
 	mechanisms = (advertisedMechanisms . S.streamFeatures) stream
 	saslMechanism = case bestMechanism mechanisms of
@@ -79,10 +84,10 @@ clientAuthenticate (ConnectedClient serverJID stream h) jid username password = 
 		-- TODO: check if response is success or failure
 		
 		newStream <- S.beginStream serverJID h
-		return $ AuthenticatedClient serverJID jid newStream h
+		return $ Client serverJID jid newStream h
 
-clientBind :: AuthenticatedClient -> IO ()
-clientBind c@(AuthenticatedClient _ _ stream h) = do
+clientBind :: Client -> IO JID
+clientBind c = do
 	-- Bind
 	-- TODO: request specific resource
 	-- TODO: set ID to random value, and check bind result for JID
@@ -94,6 +99,13 @@ clientBind c@(AuthenticatedClient _ _ stream h) = do
 		  	[]]
 	
 	bindResult <- getTree c
+	let [rawJID] = A.runLA (
+		A.deep (A.hasQName (mkQName "urn:ietf:params:xml:ns:xmpp-bind" "jid"))
+		>>> A.getChildren
+		>>> A.getText) bindResult
+	let jid = case jidParse rawJID of
+		Just x -> x
+		otherwise -> error "Couldn't parse server's returned JID"
 	
 	-- Session
 	putTree c $ mkElement ("", "iq")
@@ -106,7 +118,7 @@ clientBind c@(AuthenticatedClient _ _ stream h) = do
 	
 	putTree c $ mkElement ("", "presence") [] []
 	getTree c
-	return ()
+	return jid
 
 advertisedMechanisms :: [S.StreamFeature] -> [Mechanism]
 advertisedMechanisms [] = []
@@ -116,9 +128,9 @@ advertisedMechanisms (f:fs) = case f of
 
 -------------------------------------------------------------------------------
 
-putTree :: AuthenticatedClient -> XmlTree -> IO ()
-putTree (AuthenticatedClient _ _ s _) = S.putTree s
+putTree :: Client -> XmlTree -> IO ()
+putTree = S.putTree . clientStream
 
-getTree :: AuthenticatedClient -> IO XmlTree
-getTree (AuthenticatedClient _ _ s _) = S.getTree s
+getTree :: Client -> IO XmlTree
+getTree = S.getTree . clientStream
 
