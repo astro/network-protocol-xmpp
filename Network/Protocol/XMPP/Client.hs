@@ -39,13 +39,12 @@ import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Stanzas (Stanza)
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
 
-data ConnectedClient = ConnectedClient JID S.Stream Handle
+data ConnectedClient = ConnectedClient JID S.Stream
 
 data Client = Client {
-	 clientJID       :: JID
-	,clientServerJID :: JID
-	,clientStream    :: S.Stream
-	,clientHandle    :: Handle
+	 clientJID        :: JID
+	,clientServerJID  :: JID
+	,clientStream     :: S.Stream
 	}
 
 type Username = String
@@ -57,34 +56,30 @@ clientConnect jid host port = do
 	hSetBuffering handle NoBuffering
 	
 	stream <- S.beginStream jid handle
-	
-	-- TODO: TLS support
-	
-	return $ ConnectedClient jid stream handle
+	return $ ConnectedClient jid stream
 
 clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO Client
-clientAuthenticate (ConnectedClient serverJID stream h) jid username password = let
-	mechanisms = (advertisedMechanisms . S.streamFeatures) stream
-	saslMechanism = case bestMechanism mechanisms of
+clientAuthenticate (ConnectedClient serverJID stream) jid username password = do
+	let mechanisms = (advertisedMechanisms . S.streamFeatures) stream
+	let saslMechanism = case bestMechanism mechanisms of
 		Nothing -> error "No supported SASL mechanism"
 		Just m -> m
-	in do
-		-- TODO: use detected mechanism
-		
-		let saslText = concat [(show jid), "\x00", username, "\x00", password]
-		let b64Text = encode saslText
-		
-		S.putTree stream $ mkElement ("", "auth")
-			[ ("", "xmlns", "urn:ietf:params:xml:ns:xmpp-sasl")
-			 ,("", "mechanism", "PLAIN")]
-			[XN.mkText b64Text]
-		
-		response <- S.getTree stream
-		
-		-- TODO: check if response is success or failure
-		
-		newStream <- S.beginStream serverJID h
-		return $ Client serverJID jid newStream h
+	
+	-- TODO: use detected mechanism
+	let saslText = concat [(show jid), "\x00", username, "\x00", password]
+	let b64Text = encode saslText
+	
+	S.putTree stream $ mkElement ("", "auth")
+		[ ("", "xmlns", "urn:ietf:params:xml:ns:xmpp-sasl")
+		 ,("", "mechanism", "PLAIN")]
+		[XN.mkText b64Text]
+	
+	response <- S.getTree stream
+	
+	-- TODO: check if response is success or failure
+	
+	newStream <- S.restartStream stream
+	return $ Client serverJID jid newStream
 
 clientBind :: Client -> IO JID
 clientBind c = do

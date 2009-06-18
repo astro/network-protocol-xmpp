@@ -28,6 +28,7 @@ module Network.Protocol.XMPP.Stream (
 		,FeatureSession
 		)
 	,beginStream
+	,restartStream
 	,getTree
 	,putTree
 	) where
@@ -44,6 +45,11 @@ import Text.XML.HXT.Arrow ((>>>), (>>.))
 import Data.Tree.NTree.TypeDefs (NTree(NTree))
 import qualified Text.XML.HXT.Arrow as A
 
+-- TLS support
+import qualified Network.GnuTLS as GnuTLS
+import Foreign (allocaBytes)
+import Foreign.C (peekCAStringLen)
+
 import Network.Protocol.XMPP.JID (JID)
 import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
 import Network.Protocol.XMPP.Util (eventsToTree, mkQName, mkElement)
@@ -52,10 +58,11 @@ maxXMPPVersion = XMPPVersion 1 0
 
 data Stream = Stream
 	{
-		 streamHandle :: IO.Handle
-		,streamParser :: XML.Parser
+		 streamHandle   :: Handle
+		,streamJID      :: JID
+		,streamParser   :: XML.Parser
 		,streamLanguage :: XMLLanguage
-		,streamVersion :: XMPPVersion
+		,streamVersion  :: XMPPVersion
 		,streamFeatures :: [StreamFeature]
 	}
 
@@ -75,47 +82,72 @@ newtype XMLLanguage = XMLLanguage String
 data XMPPVersion = XMPPVersion Int Int
 	deriving (Show, Eq)
 
--------------------------------------------------------------------------------
+data Handle =
+	  PlainHandle IO.Handle
+	| SecureHandle (GnuTLS.Session GnuTLS.Client)
+
+------------------------------------------------------------------------------
+
+restartStream :: Stream -> IO Stream
+restartStream s = beginStream' (streamJID s) (streamHandle s)
 
 beginStream :: JID -> IO.Handle -> IO Stream
-beginStream jid handle = do
-	parser <- XML.newParser
+beginStream jid rawHandle = do
+	plainStream <- beginStream' jid (PlainHandle rawHandle)
 	
+	putTree plainStream $ mkElement ("", "starttls")
+		[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-tls")]
+		[]
+	getTree plainStream
+	
+	session <- GnuTLS.tlsClient [
+		 GnuTLS.handle GnuTLS.:= rawHandle
+		,GnuTLS.priorities GnuTLS.:= [GnuTLS.CrtX509]
+		,GnuTLS.credentials GnuTLS.:= GnuTLS.certificateCredentials
+		]
+	GnuTLS.handshake session
+	beginStream' jid (SecureHandle session)
+
+beginStream' :: JID -> Handle -> IO Stream
+beginStream' jid h = do
 	-- Since only the opening tag should be written, normal XML
 	-- serialization cannot be used. Be careful to escape any embedded
 	-- attributes.
-	IO.hPutStr handle $
+	let xmlHeader =
 		"<?xml version='1.0'?>\n" ++
 		"<stream:stream xmlns='jabber:client'" ++
 		" to='" ++ (attrEscapeXml . show) jid ++ "'" ++
 		" version='1.0'" ++
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
-	IO.hFlush handle
 	
-	[startStreamEvent] <- readEventsUntil startOfStream handle parser 1000
-	featureTree <- getTree' handle parser
-	return $ beginStream' handle parser startStreamEvent featureTree
+	parser <- XML.newParser
+	hPutStr h xmlHeader
+	[startStreamEvent] <- readEventsUntil startOfStream h parser 1000
+	featureTree <- getTree' h parser
+	
+	let (language, version) = parseStartStream startStreamEvent
+	let features = parseFeatures featureTree
+	
+	return $ Stream h jid parser language version features
+	
 	where
 		streamName = mkQName "http://etherx.jabber.org/streams" "stream"
+		
 		startOfStream depth event = case (depth, event) of
 			(1, (XML.BeginElement streamName _)) -> True
 			otherwise -> False
 
-beginStream' handle parser streamStart featureTree = let
-	-- TODO: parse from streamStart
-	language = XMLLanguage "en"
-	version = XMPPVersion 1 0
-	
-	featuresName = mkQName "http://etherx.jabber.org/streams" "features"
-	
-	featureRoots = A.runLA (
-		A.getChildren
-		>>> A.hasQName featuresName) featureTree
-	features = case featureRoots of
-		[] -> []
-		(t:_) -> map parseFeature (A.runLA A.getChildren t)
-	
-	in Stream handle parser language version features
+parseStartStream :: XML.Event -> (XMLLanguage, XMPPVersion)
+parseStartStream e = (XMLLanguage "en", XMPPVersion 1 0) -- TODO
+
+parseFeatures :: XmlTree -> [StreamFeature]
+parseFeatures t =
+	A.runLA (A.getChildren
+		>>> A.hasQName featuresName
+		>>> A.getChildren
+		>>> A.arrL (\t' -> [parseFeature t'])) t
+	where
+		featuresName = mkQName "http://etherx.jabber.org/streams" "features"
 
 parseFeature :: XmlTree -> StreamFeature
 parseFeature t = lookupDef FeatureUnknown qname [
@@ -149,7 +181,7 @@ parseFeatureSASL t = let
 getTree :: Stream -> IO XmlTree
 getTree s = getTree' (streamHandle s) (streamParser s)
 
-getTree' :: IO.Handle -> XML.Parser -> IO XmlTree
+getTree' :: Handle -> XML.Parser -> IO XmlTree
 getTree' h p = do
 	events <- readEventsUntil finished h p 1000
 	return $ eventsToTree events
@@ -164,14 +196,13 @@ putTree s t = do
 	[text] <- A.runX (A.constA root >>> A.writeDocumentToString [
 		(A.a_no_xml_pi, "1")
 		])
-	IO.hPutStr h text
-	IO.hFlush h
+	hPutStr h text
 
 -------------------------------------------------------------------------------
 
-readEventsUntil :: (Int -> XML.Event -> Bool) -> IO.Handle -> XML.Parser -> Int -> IO [XML.Event]
+readEventsUntil :: (Int -> XML.Event -> Bool) -> Handle -> XML.Parser -> Int -> IO [XML.Event]
 readEventsUntil done h parser timeout = readEventsUntil' done 0 [] $ do
-	char <- IO.hGetChar h
+	char <- hGetChar h
 	XML.incrementalParse parser [char]
 
 readEventsUntil' done depth accum getEvents = do
@@ -190,3 +221,16 @@ readEventsStep done (e:es) depth accum = let
 	accum' = accum ++ [e]
 	in if done depth' e then (True, depth', accum')
 	else readEventsStep done es depth' accum'
+
+-------------------------------------------------------------------------------
+
+hPutStr :: Handle -> String -> IO ()
+hPutStr (PlainHandle h) = IO.hPutStr h
+hPutStr (SecureHandle h) = GnuTLS.tlsSendString h
+
+hGetChar :: Handle -> IO Char
+hGetChar (PlainHandle h) = IO.hGetChar h
+hGetChar (SecureHandle h) = allocaBytes 1 $ \ptr -> do
+	len <- GnuTLS.tlsRecv h ptr 1
+	[char] <- peekCAStringLen (ptr, len)
+	return char
