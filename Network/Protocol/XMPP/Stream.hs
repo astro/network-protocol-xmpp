@@ -41,7 +41,7 @@ import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
 import qualified Text.XML.HXT.DOM.Interface as DOM
 import qualified Text.XML.HXT.DOM.XmlNode as XN
-import qualified Network.Protocol.XMPP.IncrementalXML as XML
+import qualified Text.XML.LibXML.SAX as SAX
 
 -- TLS support
 import qualified Network.GnuTLS as GnuTLS
@@ -50,7 +50,7 @@ import Foreign.C (peekCAStringLen)
 
 import Network.Protocol.XMPP.JID (JID)
 import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
-import Network.Protocol.XMPP.Util (eventsToTree, mkQName, mkElement)
+import qualified Network.Protocol.XMPP.Util as Util
 
 maxXMPPVersion :: XMPPVersion
 maxXMPPVersion = XMPPVersion 1 0
@@ -59,7 +59,7 @@ data Stream = Stream
 	{
 		 streamHandle   :: Handle
 		,streamJID      :: JID
-		,streamParser   :: XML.Parser
+		,streamParser   :: SAX.Parser
 		,streamLanguage :: XMLLanguage
 		,streamVersion  :: XMPPVersion
 		,streamFeatures :: [StreamFeature]
@@ -120,7 +120,7 @@ beginStream' jid h = do
 		" version='1.0'" ++
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
 	
-	parser <- XML.newParser
+	parser <- SAX.newParser
 	hPutStr h xmlHeader
 	[startStreamEvent] <- readEventsUntil startOfStream h parser
 	featureTree <- getTree' h parser
@@ -131,13 +131,14 @@ beginStream' jid h = do
 	return $ Stream h jid parser language version features
 	
 	where
-		streamName = mkQName "http://etherx.jabber.org/streams" "stream"
+		streamName = Util.mkQName "http://etherx.jabber.org/streams" "stream"
 		
 		startOfStream depth event = case (depth, event) of
-			(1, (XML.BeginElement elemName _)) -> streamName == elemName
+			(1, (SAX.BeginElement elemName _)) ->
+				streamName == Util.convertQName elemName
 			_ -> False
 
-parseStartStream :: XML.Event -> (XMLLanguage, XMPPVersion)
+parseStartStream :: SAX.Event -> (XMLLanguage, XMPPVersion)
 parseStartStream e = (XMLLanguage "en", XMPPVersion 1 0) -- TODO
 
 parseFeatures :: DOM.XmlTree -> [StreamFeature]
@@ -147,7 +148,7 @@ parseFeatures t =
 		>>> A.getChildren
 		>>> A.arrL (\t' -> [parseFeature t'])) t
 	where
-		featuresName = mkQName "http://etherx.jabber.org/streams" "features"
+		featuresName = Util.mkQName "http://etherx.jabber.org/streams" "features"
 
 parseFeature :: DOM.XmlTree -> StreamFeature
 parseFeature t = lookupDef FeatureUnknown qname [
@@ -165,7 +166,7 @@ parseFeatureTLS t = FeatureStartTLS True -- TODO: detect whether or not required
 
 parseFeatureSASL :: DOM.XmlTree -> StreamFeature
 parseFeatureSASL t = let
-	mechName = mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "mechanism"
+	mechName = Util.mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "mechanism"
 	rawMechanisms = A.runLA (
 		A.getChildren
 		>>> A.hasQName mechName
@@ -181,12 +182,12 @@ parseFeatureSASL t = let
 getTree :: Stream -> IO DOM.XmlTree
 getTree s = getTree' (streamHandle s) (streamParser s)
 
-getTree' :: Handle -> XML.Parser -> IO DOM.XmlTree
+getTree' :: Handle -> SAX.Parser -> IO DOM.XmlTree
 getTree' h p = do
 	events <- readEventsUntil finished h p
-	return $ eventsToTree events
+	return $ Util.eventsToTree events
 	where
-		finished 0 (XML.EndElement _) = True
+		finished 0 (SAX.EndElement _) = True
 		finished _ _ = False
 
 putTree :: Stream -> DOM.XmlTree -> IO ()
@@ -200,12 +201,12 @@ putTree s t = do
 
 -------------------------------------------------------------------------------
 
-readEventsUntil :: (Int -> XML.Event -> Bool) -> Handle -> XML.Parser -> IO [XML.Event]
+readEventsUntil :: (Int -> SAX.Event -> Bool) -> Handle -> SAX.Parser -> IO [SAX.Event]
 readEventsUntil done h parser = readEventsUntil' done 0 [] $ do
 	char <- hGetChar h
-	XML.incrementalParse parser [char]
+	SAX.incrementalParse parser [char]
 
-readEventsUntil' :: (Int -> XML.Event -> Bool) -> Int -> [XML.Event] -> IO [XML.Event] -> IO [XML.Event]
+readEventsUntil' :: (Int -> SAX.Event -> Bool) -> Int -> [SAX.Event] -> IO [SAX.Event] -> IO [SAX.Event]
 readEventsUntil' done depth accum getEvents = do
 	events <- getEvents
 	let (done', depth', accum') = readEventsStep done events depth accum
@@ -213,12 +214,12 @@ readEventsUntil' done depth accum getEvents = do
 		then return accum'
 		else readEventsUntil' done depth' accum' getEvents
 
-readEventsStep :: (Int -> XML.Event -> Bool) -> [XML.Event] -> Int -> [XML.Event] -> (Bool, Int, [XML.Event])
+readEventsStep :: (Int -> SAX.Event -> Bool) -> [SAX.Event] -> Int -> [SAX.Event] -> (Bool, Int, [SAX.Event])
 readEventsStep _ [] depth accum = (False, depth, accum)
 readEventsStep done (e:es) depth accum = let
 	depth' = depth + case e of
-		(XML.BeginElement _ _) -> 1
-		(XML.EndElement _) -> (- 1)
+		(SAX.BeginElement _ _) -> 1
+		(SAX.EndElement _) -> (- 1)
 		_ -> 0
 	accum' = accum ++ [e]
 	in if done depth' e then (True, depth', accum')

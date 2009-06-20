@@ -16,36 +16,37 @@
 
 module Network.Protocol.XMPP.Util (
 	 eventsToTree
+	,convertAttr
+	,convertQName
 	,mkElement
 	,mkAttr
 	,mkQName
 	) where
 
 import qualified Text.XML.HXT.DOM.XmlNode as XN
-import qualified Text.XML.HXT.DOM.QualifiedName as QN
-import Text.XML.HXT.DOM.TypeDefs (XmlTree)
-import qualified Network.Protocol.XMPP.IncrementalXML as XML
+import qualified Text.XML.HXT.DOM.Interface as DOM
+import qualified Text.XML.LibXML.SAX as SAX
 
 -------------------------------------------------------------------------------
 -- For converting incremental XML event lists to HXT trees
 -------------------------------------------------------------------------------
 
 -- This function assumes the input list is valid. No validation is performed.
-eventsToTree :: [XML.Event] -> XmlTree
+eventsToTree :: [SAX.Event] -> DOM.XmlTree
 eventsToTree es = XN.mkRoot [] (eventsToTrees es)
 
-eventsToTrees :: [XML.Event] -> [XmlTree]
+eventsToTrees :: [SAX.Event] -> [DOM.XmlTree]
 eventsToTrees es = map blockToTree (splitBlocks es)
 
 -- Split event list into a sequence of "blocks", which are the events including
 -- and between a pair of tags. <start><start2/></start> and <start/> are both
 -- single blocks.
-splitBlocks :: [XML.Event] -> [[XML.Event]]
+splitBlocks :: [SAX.Event] -> [[SAX.Event]]
 splitBlocks es = ret where (_, _, ret) = foldl splitBlocks' (0, [], []) es
 
-splitBlocks' :: (Int, [XML.Event], [[XML.Event]])
-                -> XML.Event
-                -> (Int, [XML.Event], [[XML.Event]])
+splitBlocks' :: (Int, [SAX.Event], [[SAX.Event]])
+                -> SAX.Event
+                -> (Int, [SAX.Event], [[SAX.Event]])
 splitBlocks' (depth, accum, allAccum) e =
 	if depth' == 0 then
 		(depth', [], allAccum ++ [accum'])
@@ -54,36 +55,43 @@ splitBlocks' (depth, accum, allAccum) e =
 	where
 		accum' = accum ++ [e]
 		depth' = depth + case e of
-			(XML.BeginElement _ _) -> 1
-			(XML.EndElement _) -> (- 1)
+			(SAX.BeginElement _ _) -> 1
+			(SAX.EndElement _) -> (- 1)
 			_ -> 0
 
-blockToTree :: [XML.Event] -> XmlTree
+blockToTree :: [SAX.Event] -> DOM.XmlTree
 blockToTree [] = error "No blocks"
 blockToTree (begin:rest) = let end = (last rest) in case (begin, end) of
-	(XML.BeginElement qname attrs, XML.EndElement _) ->
-		XN.mkElement qname (map convertAttr attrs) (eventsToTrees (init rest))
-	(XML.Characters s, _) -> XN.mkText s
-	(_, XML.ParseError _) -> undefined
-	fff -> error ("Got unexpected: " ++ (show fff))
+	(SAX.BeginElement qname attrs, SAX.EndElement _) ->
+		XN.mkElement (convertQName qname)
+			(map convertAttr attrs)
+			(eventsToTrees (init rest))
+	(SAX.Characters s, _) -> XN.mkText s
+	(_, SAX.ParseError text) -> error text
+	unexpected -> error ("Got unexpected: " ++ (show unexpected))
 
-convertAttr :: XML.Attribute -> XmlTree
-convertAttr (XML.Attribute qname value) = XN.NTree (XN.mkAttrNode qname) [XN.mkText value]
+convertAttr :: SAX.Attribute -> DOM.XmlTree
+convertAttr (SAX.Attribute qname value) = XN.NTree
+	(XN.mkAttrNode (convertQName qname))
+	[XN.mkText value]
+
+convertQName :: SAX.QName -> DOM.QName
+convertQName (SAX.QName ns _ local) = mkQName ns local
 
 -------------------------------------------------------------------------------
 -- Utility function for building XML trees
 -------------------------------------------------------------------------------
 
-mkElement :: (String, String) -> [(String, String, String)] -> [XmlTree] -> XmlTree
+mkElement :: (String, String) -> [(String, String, String)] -> [DOM.XmlTree] -> DOM.XmlTree
 mkElement (ns, localpart) attrs children = let
 	qname = mkQName ns localpart
 	attrs' = [mkAttr ans alp text | (ans, alp, text) <- attrs]
 	in XN.mkElement qname attrs' children
 
-mkAttr :: String -> String -> String -> XmlTree
+mkAttr :: String -> String -> String -> DOM.XmlTree
 mkAttr ns localpart text = XN.mkAttr (mkQName ns localpart) [XN.mkText text]
 
-mkQName :: String -> String -> QN.QName
+mkQName :: String -> String -> DOM.QName
 mkQName ns localpart = case ns of
-	"" -> QN.mkName localpart
-	_ -> QN.mkNsName localpart ns
+	"" -> DOM.mkName localpart
+	_ -> DOM.mkNsName localpart ns
