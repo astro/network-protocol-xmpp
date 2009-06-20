@@ -33,7 +33,7 @@ import qualified Text.XML.HXT.Arrow as A
 import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 
-import Network.Protocol.XMPP.JID (JID, jidParse)
+import Network.Protocol.XMPP.JID (JID, jidParse, jidFormat)
 import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
@@ -63,7 +63,7 @@ clientAuthenticate (ConnectedClient serverJID stream) jid username password = do
 		Just m -> m
 	
 	-- TODO: use detected mechanism
-	let saslText = concat [(show jid), "\x00", username, "\x00", password]
+	let saslText = concat [(jidFormat jid), "\x00", username, "\x00", password]
 	let b64Text = encode saslText
 	
 	S.putTree stream $ mkElement ("", "auth")

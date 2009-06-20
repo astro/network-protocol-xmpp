@@ -33,10 +33,7 @@ module Network.Protocol.XMPP.JID (
 	) where
 
 data JID = JID (Maybe JIDNode) JIDDomain (Maybe JIDResource)
-	deriving (Eq)
-
-instance Show JID where
-	show = jidFormat
+	deriving (Eq, Show)
 
 newtype JIDNode = JIDNode String
 	deriving (Eq, Show)

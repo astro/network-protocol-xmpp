@@ -48,7 +48,7 @@ import qualified Network.GnuTLS as GnuTLS
 import Foreign (allocaBytes)
 import Foreign.C (peekCAStringLen)
 
-import Network.Protocol.XMPP.JID (JID)
+import Network.Protocol.XMPP.JID (JID, jidFormat)
 import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
 import qualified Network.Protocol.XMPP.Util as Util
 
@@ -116,7 +116,7 @@ beginStream' jid h = do
 	let xmlHeader =
 		"<?xml version='1.0'?>\n" ++
 		"<stream:stream xmlns='jabber:client'" ++
-		" to='" ++ (DOM.attrEscapeXml . show) jid ++ "'" ++
+		" to='" ++ (DOM.attrEscapeXml . jidFormat) jid ++ "'" ++
 		" version='1.0'" ++
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
 	
