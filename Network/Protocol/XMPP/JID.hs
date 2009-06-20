@@ -15,7 +15,7 @@
 -}
 
 module Network.Protocol.XMPP.JID (
-	 JID
+	 JID(..)
 	,JIDNode
 	,JIDDomain
 	,JIDResource
