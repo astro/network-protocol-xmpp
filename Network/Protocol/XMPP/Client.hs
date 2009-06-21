@@ -24,6 +24,7 @@ module Network.Protocol.XMPP.Client (
 	,clientServerJID
 	,putTree
 	,getTree
+	,putStanza
 	) where
 
 import Codec.Binary.Base64.String (encode)
@@ -37,6 +38,7 @@ import Network.Protocol.XMPP.JID (JID, jidParse, jidFormat)
 import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
+import Network.Protocol.XMPP.Stanzas (Stanza, stanzaXML)
 
 data ConnectedClient = ConnectedClient JID S.Stream
 
@@ -126,3 +128,5 @@ putTree = S.putTree . clientStream
 getTree :: Client -> IO XmlTree
 getTree = S.getTree . clientStream
 
+putStanza :: (Stanza a) => Client -> a -> IO ()
+putStanza c = (putTree c) . stanzaXML
