@@ -30,68 +30,80 @@ jidTests = "jidTests" ~: TestList [
 	,buildResourceTests
 	,buildJIDTests
 	,parseJIDTests
-	,showJIDTests
+	,formatJIDTests
+	,jidPartTests
 	]
 
 buildNodeTests = "buildNodeTests" ~: TestList [
 	-- TODO: stringprep, validation
-	 testValue "" Nothing
-	,testValue "a" (Just "a")
+	 testStr "" Nothing
+	,testStr "a" (Just "a")
 	]
-	where testValue s expected = let
-		maybeNode = jidNodeBuild s
-		value = maybe Nothing (\x -> Just (jidNodeValue x)) maybeNode
+	where testStr s expected = let
+		maybeNode = mkJIDNode s
+		value = maybe Nothing (\x -> Just (jidNodeStr x)) maybeNode
 		in expected ~=? value
 
 buildDomainTests = "buildDomainTests" ~: TestList [
 	-- TODO: stringprep, validation
-	 testValue "" Nothing
-	,testValue "a" (Just "a")
+	 testStr "" Nothing
+	,testStr "a" (Just "a")
 	]
-	where testValue s expected = let
-		maybeDomain = jidDomainBuild s
-		value = maybe Nothing (\x -> Just (jidDomainValue x)) maybeDomain
+	where testStr s expected = let
+		maybeDomain = mkJIDDomain s
+		value = maybe Nothing (\x -> Just (jidDomainStr x)) maybeDomain
 		in expected ~=? value
 
 buildResourceTests = "buildResourceTests" ~: TestList [
 	-- TODO: stringprep, validation
-	 testValue "" Nothing
-	,testValue "a" (Just "a")
+	 testStr "" Nothing
+	,testStr "a" (Just "a")
 	]
-	where testValue s expected = let
-		maybeResource = jidResourceBuild s
-		value = maybe Nothing (\x -> Just (jidResourceValue x)) maybeResource
+	where testStr s expected = let
+		maybeResource = mkJIDResource s
+		value = maybe Nothing (\x -> Just (jidResourceStr x)) maybeResource
 		in expected ~=? value
 
 buildJIDTests = "buildJIDTests" ~: TestList [
 	-- TODO: stringprep, validation of segments
-	 jidBuild ""  ""  ""  ~?=  Nothing
-	,jidBuild "a" ""  ""  ~?=  Nothing
-	,jidBuild ""  "b" ""  ~?/= Nothing
-	,jidBuild ""  ""  "c" ~?=  Nothing
-	,jidBuild "a" "b" ""  ~?/= Nothing
-	,jidBuild "a" ""  "c" ~?=  Nothing
-	,jidBuild ""  "b" "c" ~?/= Nothing
-	,jidBuild "a" "b" "c" ~?/= Nothing
+	 mkJID ""  ""  ""  ~?=  Nothing
+	,mkJID "a" ""  ""  ~?=  Nothing
+	,mkJID ""  "b" ""  ~?/= Nothing
+	,mkJID ""  ""  "c" ~?=  Nothing
+	,mkJID "a" "b" ""  ~?/= Nothing
+	,mkJID "a" ""  "c" ~?=  Nothing
+	,mkJID ""  "b" "c" ~?/= Nothing
+	,mkJID "a" "b" "c" ~?/= Nothing
 	]
 
 parseJIDTests = "parseJIDTests" ~: TestList [
-	 testJIDParse "b" (jidBuild "" "b" "")
-	,testJIDParse "a@b" (jidBuild "a" "b" "")
-	,testJIDParse "b/c" (jidBuild "" "b" "c")
-	,testJIDParse "a@b/c" (jidBuild "a" "b" "c")
+	 testJIDParse "b" (mkJID "" "b" "")
+	,testJIDParse "a@b" (mkJID "a" "b" "")
+	,testJIDParse "b/c" (mkJID "" "b" "c")
+	,testJIDParse "a@b/c" (mkJID "a" "b" "c")
 	]
 	where testJIDParse s expected = expected ~=? (jidParse s)
 
-showJIDTests = "showJIDTests" ~: TestList [
-	 testJIDShow (jidBuild "" "b" "") "b"
-	,testJIDShow (jidBuild "a" "b" "") "a@b"
-	,testJIDShow (jidBuild "" "b" "c") "b/c"
-	,testJIDShow (jidBuild "a" "b" "c") "a@b/c"
+formatJIDTests = "formatJIDTests" ~: TestList [
+	 testJIDFormat (mkJID  "" "b"  "") "b"
+	,testJIDFormat (mkJID "a" "b"  "") "a@b"
+	,testJIDFormat (mkJID  "" "b" "c") "b/c"
+	,testJIDFormat (mkJID "a" "b" "c") "a@b/c"
 	]
-	where testJIDShow maybeJID expected = TestCase (case maybeJID of
-		Nothing -> assertFailure "jidBuild returned Nothing"
-		(Just jid) -> expected @=? (show jid))
+	where testJIDFormat maybeJID expected = TestCase $ case maybeJID of
+		Nothing -> assertFailure "mkJID returned Nothing"
+		(Just jid) -> expected @=? (jidFormat jid)
+
+jidPartTests = "jidPartTests" ~: TestList [
+	 testJIDPart (mkJID  "" "b"  "") jidNode ""
+	,testJIDPart (mkJID "a" "b"  "") jidNode "a"
+	,testJIDPart (mkJID  "" "b"  "") jidDomain "b"
+	,testJIDPart (mkJID  "" "b"  "") jidResource ""
+	,testJIDPart (mkJID  "" "b" "c") jidResource "c"
+	]
+	where testJIDPart maybeJID f expected = TestCase $ case maybeJID of
+		Nothing -> assertFailure "mkJID returned Nothing"
+		(Just jid) -> expected @=? (f jid)
 
 -------------------------------------------------------------------------------
 

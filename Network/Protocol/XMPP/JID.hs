@@ -20,13 +20,18 @@ module Network.Protocol.XMPP.JID (
 	,JIDDomain
 	,JIDResource
 	
-	,jidNodeBuild
-	,jidNodeValue
-	,jidDomainBuild
-	,jidDomainValue
-	,jidResourceBuild
-	,jidResourceValue
-	,jidBuild
+	,jidNodeStr
+	,jidDomainStr
+	,jidResourceStr
+	
+	,mkJIDNode
+	,mkJIDDomain
+	,mkJIDResource
+	,mkJID
+	
+	,jidNode
+	,jidDomain
+	,jidResource
 	
 	,jidParse
 	,jidFormat
@@ -44,41 +49,50 @@ newtype JIDDomain = JIDDomain String
 newtype JIDResource = JIDResource String
 	deriving (Eq, Show)
 
-jidNodeBuild :: String -> Maybe JIDNode
-jidNodeBuild "" = Nothing
-jidNodeBuild s = Just (JIDNode s) -- TODO: stringprep, validation
+jidNodeStr :: JIDNode -> String
+jidNodeStr (JIDNode s) = s
 
-jidNodeValue :: JIDNode -> String
-jidNodeValue (JIDNode s) = s
+jidDomainStr :: JIDDomain -> String
+jidDomainStr (JIDDomain s) = s
 
-jidDomainBuild :: String -> Maybe JIDDomain
-jidDomainBuild "" = Nothing
-jidDomainBuild s = Just (JIDDomain s) -- TODO: stringprep, validation
+jidResourceStr :: JIDResource -> String
+jidResourceStr (JIDResource s) = s
 
-jidDomainValue :: JIDDomain -> String
-jidDomainValue (JIDDomain s) = s
+mkJIDNode :: String -> Maybe JIDNode
+mkJIDNode "" = Nothing
+mkJIDNode s = Just (JIDNode s) -- TODO: stringprep, validation
 
-jidResourceBuild :: String -> Maybe JIDResource
-jidResourceBuild "" = Nothing
-jidResourceBuild s = Just (JIDResource s) -- TODO: stringprep, validation
+mkJIDDomain :: String -> Maybe JIDDomain
+mkJIDDomain "" = Nothing
+mkJIDDomain s = Just (JIDDomain s) -- TODO: stringprep, validation
 
-jidResourceValue :: JIDResource -> String
-jidResourceValue (JIDResource s) = s
+mkJIDResource :: String -> Maybe JIDResource
+mkJIDResource "" = Nothing
+mkJIDResource s = Just (JIDResource s) -- TODO: stringprep, validation
 
-jidBuild :: String -> String -> String -> Maybe JID
-jidBuild nodeStr domainStr resourceStr = let
-	node = jidNodeBuild nodeStr
-	resource = jidResourceBuild resourceStr
+mkJID :: String -> String -> String -> Maybe JID
+mkJID nodeStr domainStr resourceStr = let
+	node = mkJIDNode nodeStr
+	resource = mkJIDResource resourceStr
 	in do
-		domain <- jidDomainBuild domainStr
+		domain <- mkJIDDomain domainStr
 		Just (JID node domain resource)
+
+jidNode :: JID -> String
+jidNode (JID x _ _) = maybe "" jidNodeStr x
+
+jidDomain :: JID -> String
+jidDomain (JID _ x _) = jidDomainStr x
+
+jidResource :: JID -> String
+jidResource (JID _ _ x) = maybe "" jidResourceStr x
 
 -- TODO: validate input according to RFC 3920, section 3.1
 jidParse :: String -> Maybe JID
 jidParse s = let
 	(nodeStr, postNode) = if '@' `elem` s then split s '@' else ("", s)
 	(domainStr, resourceStr) = if '/' `elem` postNode then split postNode '/' else (postNode, "")
-	in jidBuild nodeStr domainStr resourceStr
+	in mkJID nodeStr domainStr resourceStr
 
 jidFormat :: JID -> String
 jidFormat (JID node (JIDDomain domain) resource) = let
