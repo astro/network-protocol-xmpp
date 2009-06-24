@@ -82,7 +82,7 @@ data XMPPVersion = XMPPVersion Int Int
 
 data Handle =
 	  PlainHandle IO.Handle
-	| SecureHandle (GnuTLS.Session GnuTLS.Client)
+	| SecureHandle IO.Handle (GnuTLS.Session GnuTLS.Client)
 
 ------------------------------------------------------------------------------
 
@@ -95,7 +95,7 @@ beginStream jid rawHandle = do
 	
 	plainStream <- beginStream' jid (PlainHandle rawHandle)
 	
-	putTree plainStream $ mkElement ("", "starttls")
+	putTree plainStream $ Util.mkElement ("", "starttls")
 		[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-tls")]
 		[]
 	getTree plainStream
@@ -106,7 +106,7 @@ beginStream jid rawHandle = do
 		,GnuTLS.credentials GnuTLS.:= GnuTLS.certificateCredentials
 		]
 	GnuTLS.handshake session
-	beginStream' jid (SecureHandle session)
+	beginStream' jid (SecureHandle rawHandle session)
 
 beginStream' :: JID -> Handle -> IO Stream
 beginStream' jid h = do
@@ -229,11 +229,18 @@ readEventsStep done (e:es) depth accum = let
 
 hPutStr :: Handle -> String -> IO ()
 hPutStr (PlainHandle h) = IO.hPutStr h
-hPutStr (SecureHandle h) = GnuTLS.tlsSendString h
+hPutStr (SecureHandle _ session) = GnuTLS.tlsSendString session
 
 hGetChar :: Handle -> IO Char
 hGetChar (PlainHandle h) = IO.hGetChar h
-hGetChar (SecureHandle h) = allocaBytes 1 $ \ptr -> do
-	len <- GnuTLS.tlsRecv h ptr 1
+hGetChar (SecureHandle h session) = allocaBytes 1 $ \ptr -> do
+	pending <- GnuTLS.tlsCheckPending session
+	if pending == 0
+		then do
+			IO.hWaitForInput h (-1)
+			return ()
+		else return ()
+	
+	len <- GnuTLS.tlsRecv session ptr 1
 	[char] <- peekCAStringLen (ptr, len)
 	return char
