@@ -34,7 +34,7 @@ import qualified Text.XML.HXT.Arrow as A
 import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 
-import Network.Protocol.XMPP.JID (JID, jidParse, jidFormat)
+import Network.Protocol.XMPP.JID (JID, jidParse, jidFormat, jidResource)
 import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
@@ -78,19 +78,24 @@ clientAuthenticate (ConnectedClient serverJID stream) jid username password = do
 	-- TODO: check if response is success or failure
 	
 	newStream <- S.restartStream stream
-	return $ Client serverJID jid newStream
+	return $ Client jid serverJID newStream
 
 clientBind :: Client -> IO JID
 clientBind c = do
 	-- Bind
-	-- TODO: request specific resource
 	-- TODO: set ID to random value, and check bind result for JID
-	-- TODO: return JID from server
+	let resourceElements = case jidResource . clientJID $ c of
+		"" -> []
+		resource ->
+			[mkElement ("", "resource")
+				[]
+				[XN.mkText resource]]
+	
 	putTree c $ mkElement ("", "iq")
 		[("", "type", "set")]
-		[ mkElement ("", "bind")
-		  	[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-bind")]
-		  	[]]
+		[mkElement ("", "bind")
+		 	[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-bind")]
+		 	resourceElements]
 	
 	bindResult <- getTree c
 	let [rawJID] = A.runLA (
