@@ -35,7 +35,7 @@ import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 
 import Network.Protocol.XMPP.JID (JID, jidParse, jidFormat, jidResource)
-import Network.Protocol.XMPP.SASL (Mechanism, bestMechanism)
+import qualified Network.Protocol.XMPP.SASL as SASL
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
 import Network.Protocol.XMPP.Stanzas (Stanza, stanzaXML)
@@ -59,26 +59,13 @@ clientConnect jid host port = do
 
 clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO Client
 clientAuthenticate (ConnectedClient serverJID stream) jid username password = do
-	let mechanisms = (advertisedMechanisms . S.streamFeatures) stream
-	let saslMechanism = case bestMechanism mechanisms of
-		Nothing -> error "No supported SASL mechanism"
-		Just m -> m
-	
-	-- TODO: use detected mechanism
-	let saslText = concat [(jidFormat jid), "\x00", username, "\x00", password]
-	let b64Text = encode saslText
-	
-	S.putTree stream $ mkElement ("", "auth")
-		[ ("", "xmlns", "urn:ietf:params:xml:ns:xmpp-sasl")
-		 ,("", "mechanism", "PLAIN")]
-		[XN.mkText b64Text]
-	
-	response <- S.getTree stream
-	
-	-- TODO: check if response is success or failure
-	
-	newStream <- S.restartStream stream
-	return $ Client jid serverJID newStream
+	authed <- SASL.authenticate stream jid username password
+	case authed of
+		SASL.Failure -> error "Authentication failure"
+		_ -> do
+			putStrLn $ "About to restart stream"
+			newStream <- S.restartStream stream
+			return $ Client jid serverJID newStream
 
 clientBind :: Client -> IO JID
 clientBind c = do
@@ -118,12 +105,6 @@ clientBind c = do
 	putTree c $ mkElement ("", "presence") [] []
 	getTree c
 	return jid
-
-advertisedMechanisms :: [S.StreamFeature] -> [Mechanism]
-advertisedMechanisms [] = []
-advertisedMechanisms (f:fs) = case f of
-	(S.FeatureSASL ms) -> ms
-	_ -> advertisedMechanisms fs
 
 -------------------------------------------------------------------------------
 

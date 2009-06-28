@@ -15,29 +15,56 @@
 -}
 
 module Network.Protocol.XMPP.SASL (
-	 Mechanism
-	,supportedMechanisms
-	,bestMechanism
-	,findMechanism
+	 Result(..)
+	,authenticate
 	) where
 
-import Data.List (intersect)
-import Data.AssocList (lookupDef)
+import qualified Text.XML.HXT.Arrow as A
+import qualified Text.XML.HXT.DOM.XmlNode as XN
+import qualified Network.Protocol.SASL.GSASL as G
+
+import Network.Protocol.XMPP.JID (JID, jidFormat)
+import Network.Protocol.XMPP.Util (mkElement, mkQName)
+import qualified Network.Protocol.XMPP.Stream as S
 
 type Username = String
 type Password = String
-
 type Mechanism = String
 
--- TODO: validation
-supportedMechanisms :: [Mechanism]
-supportedMechanisms = ["PLAIN"] -- TODO: Digest-MD5
+data Result = Success | Failure
+	deriving (Show, Eq)
 
-bestMechanism :: [Mechanism] -> Maybe Mechanism
-bestMechanism ms = let
-	in case intersect supportedMechanisms ms of
-		[] -> Nothing
-		(m:_) -> Just m
+authenticate :: S.Stream -> JID -> Username -> Password -> IO Result
+authenticate stream jid username password = do
+	let mechanisms = (advertisedMechanisms . S.streamFeatures) stream
+	let authz = jidFormat jid
+	
+	ctxt <- G.mkContext
+	G.propertySet s G.GSASL_AUTHZID (jidFormat jid)
+	G.propertySet s G.GSASL_AUTHID username
+	G.propertySet s G.GSASL_PASSWORD password
+	
+	-- TODO: use best mechanism
+	s <- G.clientStart ctxt "PLAIN"
+	(b64text, rc) <- G.step64 s ""
+	
+	S.putTree stream $ mkElement ("", "auth")
+		[ ("", "xmlns", "urn:ietf:params:xml:ns:xmpp-sasl")
+		 ,("", "mechanism", "PLAIN")]
+		[XN.mkText b64text]
+	
+	successElem <- A.runX (
+		A.arrIO (\_ -> S.getTree stream)
+		A.>>> A.getChildren
+		A.>>> A.hasQName (mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "success"))
+	
+	if length successElem == 0
+		then return Failure
+		else return Success
 
-findMechanism :: String -> Mechanism
-findMechanism s = s -- TODO: validate
+advertisedMechanisms :: [S.StreamFeature] -> [Mechanism]
+advertisedMechanisms [] = []
+advertisedMechanisms (f:fs) = case f of
+	(S.FeatureSASL ms) -> ms
+	_ -> advertisedMechanisms fs
+

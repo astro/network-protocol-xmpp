@@ -35,6 +35,7 @@ module Network.Protocol.XMPP.Stream (
 
 import qualified System.IO as IO
 import Data.AssocList (lookupDef)
+import Data.Char (toUpper)
 
 -- XML Parsing
 import Text.XML.HXT.Arrow ((>>>))
@@ -49,7 +50,6 @@ import Foreign (allocaBytes)
 import Foreign.C (peekCAStringLen)
 
 import Network.Protocol.XMPP.JID (JID, jidFormat)
-import Network.Protocol.XMPP.SASL (Mechanism, findMechanism)
 import qualified Network.Protocol.XMPP.Util as Util
 
 maxXMPPVersion :: XMPPVersion
@@ -67,7 +67,7 @@ data Stream = Stream
 
 data StreamFeature =
 	  FeatureStartTLS Bool
-	| FeatureSASL [Mechanism]
+	| FeatureSASL [String]
 	| FeatureRegister
 	| FeatureBind
 	| FeatureSession
@@ -167,15 +167,13 @@ parseFeatureTLS t = FeatureStartTLS True -- TODO: detect whether or not required
 parseFeatureSASL :: DOM.XmlTree -> StreamFeature
 parseFeatureSASL t = let
 	mechName = Util.mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "mechanism"
-	rawMechanisms = A.runLA (
+	mechanisms = A.runLA (
 		A.getChildren
 		>>> A.hasQName mechName
 		>>> A.getChildren
 		>>> A.getText) t
 	
-	-- TODO: validate mechanism names according to SASL rules
-	-- <20 chars, uppercase, alphanum, etc
-	in FeatureSASL (map findMechanism rawMechanisms)
+	in FeatureSASL $ map (map toUpper) mechanisms
 
 -------------------------------------------------------------------------------
 
