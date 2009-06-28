@@ -59,11 +59,10 @@ clientConnect jid host port = do
 
 clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO Client
 clientAuthenticate (ConnectedClient serverJID stream) jid username password = do
-	authed <- SASL.authenticate stream jid username password
+	authed <- SASL.authenticate stream jid serverJID username password
 	case authed of
 		SASL.Failure -> error "Authentication failure"
 		_ -> do
-			putStrLn $ "About to restart stream"
 			newStream <- S.restartStream stream
 			return $ Client jid serverJID newStream
 
