@@ -19,11 +19,17 @@ module Network.Protocol.XMPP.Stanzas (
 	,GenericStanza(..)
 	,Message(..)
 	,Presence(..)
+	,toStanza
+	,toMessage
+	,toPresence
 	) where
 
 import Text.XML.HXT.DOM.Interface (XmlTree)
-import Network.Protocol.XMPP.JID (JID, jidFormat)
-import Network.Protocol.XMPP.Util (mkElement)
+import Text.XML.HXT.Arrow ((>>>), (&&&))
+import qualified Text.XML.HXT.Arrow as A
+
+import Network.Protocol.XMPP.JID (JID, jidFormat, jidParse)
+import Network.Protocol.XMPP.Util (mkElement, mkQName)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 
 class Stanza a where
@@ -125,6 +131,57 @@ instance Stanza Presence where
 		in mkElement ("jabber:client", "presence")
 			attrs
 			(showElem ++ statusElem)
+
+-------------------------------------------------------------------------------
+
+toStanza :: XmlTree -> [GenericStanza]
+toStanza t = let
+	getFrom = A.getAttrValue "from" >>> A.arrL (\x -> [jidParse x])
+	getTo = A.getAttrValue "to" >>> A.arrL (\x -> [jidParse x])
+	getID = A.getAttrValue "id"
+	getType = A.getAttrValue "type"
+	getLang = A.getAttrValue "lang"
+	attrArrow = (getTo &&& getFrom &&& getID &&& getType &&& getLang)
+	in do
+		(to, (from, (id', (type', lang)))) <- A.runLA attrArrow t
+		return $ GenericStanza to from id' type' lang t
+
+toMessage :: (Stanza a) => a -> [Message]
+toMessage s = let
+	getBody = (
+		A.arr stanzaXML
+		>>> A.hasQName (mkQName "jabber:client" "message")
+		>>> A.getChildren
+		>>> A.hasQName (mkQName "jabber:client" "body")
+		>>> A.getChildren
+		>>> A.getText
+		)
+	bodyText = concat (A.runLA getBody s)
+	in case (bodyText, stanzaTo s) of
+		("", _) -> []
+		(_, Nothing) -> []
+		(_, Just to) -> [Message to (stanzaFrom s)
+		                         (stanzaID s) (stanzaType s)
+		                         (stanzaLang s) bodyText]
+
+toPresence :: (Stanza a) => a -> [Presence]
+toPresence s = let
+	getChildText qname = (A.getChildren >>> A.hasQName qname >>>
+	                      A.getChildren >>> A.getText)
+	getShow = getChildText $ mkQName "jabber:client" "show"
+	getStatus = getChildText $ mkQName "jabber:client" "status"
+	getShowStatus = (
+		A.arr stanzaXML
+		>>> A.hasQName (mkQName "jabber:client" "presence")
+		>>> A.withDefault getShow []
+		&&& A.withDefault getStatus []
+		)
+	in case A.runLA getShowStatus s of
+		[(show', status)] -> [Presence (stanzaTo s) (stanzaFrom s)
+		                               (stanzaID s) (stanzaType s)
+		                               (stanzaLang s) show' status]
+		_ -> []
+
 
 -------------------------------------------------------------------------------
 
