@@ -41,14 +41,14 @@ authenticate stream userJID serverJID username password = do
 	let authz = jidFormat userJID
 	let hostname = jidFormat serverJID
 	
-	ctxt <- G.mkContext
+	G.withContext $ \ctxt -> do
 	
 	suggested <- G.clientSuggestMechanism ctxt mechanisms
 	mechanism <- case suggested of
 		Just m -> return m
 		Nothing -> error "No supported SASL mechanisms advertised"
 	
-	s <- G.clientStart ctxt mechanism
+	G.withSession (G.clientStart ctxt mechanism) $ \s -> do
 	
 	G.propertySet s G.GSASL_AUTHZID authz
 	G.propertySet s G.GSASL_AUTHID username
