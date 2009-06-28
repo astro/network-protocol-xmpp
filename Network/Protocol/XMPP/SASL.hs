@@ -15,29 +15,87 @@
 -}
 
 module Network.Protocol.XMPP.SASL (
-	 Mechanism
-	,supportedMechanisms
-	,bestMechanism
-	,findMechanism
+	 Result(..)
+	,authenticate
 	) where
 
-import Data.List (intersect)
-import Data.AssocList (lookupDef)
+import Text.XML.HXT.Arrow ((>>>))
+import qualified Text.XML.HXT.Arrow as A
+import qualified Text.XML.HXT.DOM.XmlNode as XN
+import qualified Network.Protocol.SASL.GSASL as G
+
+import Network.Protocol.XMPP.JID (JID, jidFormat)
+import Network.Protocol.XMPP.Util (mkElement, mkQName)
+import qualified Network.Protocol.XMPP.Stream as S
 
 type Username = String
 type Password = String
-
 type Mechanism = String
 
--- TODO: validation
-supportedMechanisms :: [Mechanism]
-supportedMechanisms = ["PLAIN"] -- TODO: Digest-MD5
+data Result = Success | Failure
+	deriving (Show, Eq)
 
-bestMechanism :: [Mechanism] -> Maybe Mechanism
-bestMechanism ms = let
-	in case intersect supportedMechanisms ms of
-		[] -> Nothing
-		(m:_) -> Just m
+authenticate :: S.Stream -> JID -> JID -> Username -> Password -> IO Result
+authenticate stream userJID serverJID username password = do
+	let mechanisms = (advertisedMechanisms . S.streamFeatures) stream
+	let authz = jidFormat userJID
+	let hostname = jidFormat serverJID
+	
+	ctxt <- G.mkContext
+	
+	suggested <- G.clientSuggestMechanism ctxt mechanisms
+	mechanism <- case suggested of
+		Just m -> return m
+		Nothing -> error "No supported SASL mechanisms advertised"
+	
+	s <- G.clientStart ctxt mechanism
+	
+	G.propertySet s G.GSASL_AUTHZID authz
+	G.propertySet s G.GSASL_AUTHID username
+	G.propertySet s G.GSASL_PASSWORD password
+	G.propertySet s G.GSASL_SERVICE "xmpp"
+	G.propertySet s G.GSASL_HOSTNAME hostname
+	
+	(b64text, rc) <- G.step64 s ""
+	S.putTree stream $ mkElement ("", "auth")
+		[ ("", "xmlns", "urn:ietf:params:xml:ns:xmpp-sasl")
+		 ,("", "mechanism", mechanism)]
+		[XN.mkText b64text]
+	
+	case rc of
+		G.GSASL_OK -> saslFinish stream
+		G.GSASL_NEEDS_MORE -> saslLoop stream s
 
-findMechanism :: String -> Mechanism
-findMechanism s = s -- TODO: validate
+saslLoop :: S.Stream -> G.Session -> IO Result
+saslLoop stream session = do
+	challengeText <- A.runX (
+		A.arrIO (\_ -> S.getTree stream)
+		>>> A.getChildren
+		>>> A.hasQName (mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "challenge")
+		>>> A.getChildren >>> A.getText)
+	
+	if null challengeText then return Failure
+		else do
+			(b64text, rc) <- G.step64 session (concat challengeText)
+			S.putTree stream $ mkElement ("", "response")
+				[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-sasl")]
+				[XN.mkText b64text]
+			case rc of
+				G.GSASL_OK -> saslFinish stream
+				G.GSASL_NEEDS_MORE -> saslLoop stream session
+
+saslFinish :: S.Stream -> IO Result
+saslFinish stream = do
+	successElem <- A.runX (
+		A.arrIO (\_ -> S.getTree stream)
+		>>> A.getChildren
+		>>> A.hasQName (mkQName "urn:ietf:params:xml:ns:xmpp-sasl" "success"))
+	
+	return $ if null successElem then Failure else Success
+
+advertisedMechanisms :: [S.StreamFeature] -> [Mechanism]
+advertisedMechanisms [] = []
+advertisedMechanisms (f:fs) = case f of
+	(S.FeatureSASL ms) -> ms
+	_ -> advertisedMechanisms fs
+
