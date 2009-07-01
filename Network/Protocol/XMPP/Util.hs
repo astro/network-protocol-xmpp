@@ -36,7 +36,7 @@ eventsToTree :: [SAX.Event] -> DOM.XmlTree
 eventsToTree es = XN.mkRoot [] (eventsToTrees es)
 
 eventsToTrees :: [SAX.Event] -> [DOM.XmlTree]
-eventsToTrees es = map blockToTree (splitBlocks es)
+eventsToTrees es = concatMap blockToTrees (splitBlocks es)
 
 -- Split event list into a sequence of "blocks", which are the events including
 -- and between a pair of tags. <start><start2/></start> and <start/> are both
@@ -59,16 +59,16 @@ splitBlocks' (depth, accum, allAccum) e =
 			(SAX.EndElement _) -> (- 1)
 			_ -> 0
 
-blockToTree :: [SAX.Event] -> DOM.XmlTree
-blockToTree [] = error "No blocks"
-blockToTree (begin:rest) = let end = (last rest) in case (begin, end) of
+blockToTrees :: [SAX.Event] -> [DOM.XmlTree]
+blockToTrees [] = []
+blockToTrees (begin:rest) = let end = (last rest) in case (begin, end) of
 	(SAX.BeginElement qname attrs, SAX.EndElement _) ->
-		XN.mkElement (convertQName qname)
+		[XN.mkElement (convertQName qname)
 			(map convertAttr attrs)
-			(eventsToTrees (init rest))
-	(SAX.Characters s, _) -> XN.mkText s
+			(eventsToTrees (init rest))]
+	(SAX.Characters s, _) -> [XN.mkText s]
 	(_, SAX.ParseError text) -> error text
-	unexpected -> error ("Got unexpected: " ++ (show unexpected))
+	_ -> []
 
 convertAttr :: SAX.Attribute -> DOM.XmlTree
 convertAttr (SAX.Attribute qname value) = XN.NTree

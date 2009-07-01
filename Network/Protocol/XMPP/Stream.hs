@@ -120,11 +120,12 @@ beginStream' jid h = do
 		" version='1.0'" ++
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
 	
-	parser <- SAX.newParser
+	parser <- SAX.mkParser
 	hPutStr h xmlHeader
-	[startStreamEvent] <- readEventsUntil startOfStream h parser
+	initialEvents <- readEventsUntil startOfStream h parser
 	featureTree <- getTree' h parser
 	
+	let startStreamEvent = last initialEvents
 	let (language, version) = parseStartStream startStreamEvent
 	let features = parseFeatures featureTree
 	
@@ -202,7 +203,7 @@ putTree s t = do
 readEventsUntil :: (Int -> SAX.Event -> Bool) -> Handle -> SAX.Parser -> IO [SAX.Event]
 readEventsUntil done h parser = readEventsUntil' done 0 [] $ do
 	char <- hGetChar h
-	SAX.incrementalParse parser [char]
+	SAX.parse parser [char] False
 
 readEventsUntil' :: (Int -> SAX.Event -> Bool) -> Int -> [SAX.Event] -> IO [SAX.Event] -> IO [SAX.Event]
 readEventsUntil' done depth accum getEvents = do
