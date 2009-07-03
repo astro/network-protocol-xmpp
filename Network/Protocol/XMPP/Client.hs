@@ -69,7 +69,6 @@ clientAuthenticate (ConnectedClient serverJID stream) jid username password = do
 clientBind :: Client -> IO JID
 clientBind c = do
 	-- Bind
-	-- TODO: set ID to random value, and check bind result for JID
 	let resourceElements = case jidResource . clientJID $ c of
 		"" -> []
 		resource ->
