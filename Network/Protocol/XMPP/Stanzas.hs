@@ -59,6 +59,7 @@ data Stanza = Stanza
 		,stanzaLang     :: String
 		,stanzaPayloads :: [XmlTree]
 	}
+	deriving (Show, Eq)
 
 stanzaTypeMap :: [((String, String, String), StanzaType)]
 stanzaTypeMap = mkStanzaTypeMap $ [
