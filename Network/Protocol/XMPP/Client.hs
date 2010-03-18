@@ -27,14 +27,12 @@ module Network.Protocol.XMPP.Client (
 import Network (HostName, PortID, connectTo)
 import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
-import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 
 import Network.Protocol.XMPP.JID (JID, jidParse, jidResource)
 import qualified Network.Protocol.XMPP.SASL as SASL
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
-import Network.Protocol.XMPP.Stanzas (Stanza, stanzaToTree)
 import Network.Protocol.XMPP.Connection
 
 data ConnectedClient = ConnectedClient JID S.Stream

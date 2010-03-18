@@ -27,15 +27,12 @@ import Control.Monad (when)
 import Network (HostName, PortID, connectTo)
 import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
-import Text.XML.HXT.DOM.TypeDefs (XmlTree)
 import qualified Text.XML.HXT.DOM.XmlNode as XN
 import qualified Data.Digest.Pure.SHA as SHA
 
-import Network.Protocol.XMPP.JID (JID, jidParse, jidResource)
-import qualified Network.Protocol.XMPP.SASL as SASL
+import Network.Protocol.XMPP.JID (JID)
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
-import Network.Protocol.XMPP.Stanzas (Stanza, stanzaToTree)
 import Network.Protocol.XMPP.Connection
 import qualified Data.ByteString.Lazy.Char8 as B (pack)
 

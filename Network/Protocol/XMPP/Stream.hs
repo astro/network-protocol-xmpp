@@ -135,12 +135,12 @@ beginStream' jid ns h = do
 	initialEvents <- readEventsUntil startOfStream h parser
 	
 	let startStreamEvent = last initialEvents
-	let (language, version, streamID) = parseStartStream startStreamEvent
+	let (language, version, sid) = parseStartStream startStreamEvent
 	features <- if version == XMPPVersion10
                     then parseFeatures <$> getTree' h parser
                     else return []
 	
-	return $ Stream h jid ns parser language version streamID features
+	return $ Stream h jid ns parser language version sid features
 	
 	where
 		streamName = Util.mkQName "http://etherx.jabber.org/streams" "stream"
@@ -151,14 +151,14 @@ beginStream' jid ns h = do
 			_ -> False
 
 parseStartStream :: SAX.Event -> (XMLLanguage, XMPPVersion, XMPPStreamID)
-parseStartStream e = (XMLLanguage lang, ver, XMPPStreamID id)
+parseStartStream e = (XMLLanguage lang, ver, XMPPStreamID sid)
     where SAX.BeginElement _ attrs = e
 	  attr name = maybe "" SAX.attributeValue $
 		      m1 $ filter ((name ==) . SAX.qnameLocalName . SAX.attributeName) attrs
 	      where m1 (x:_) = Just x
 		    m1 _ = Nothing
 	  lang = attr "lang"
-	  id = attr "id"
+	  sid = attr "id"
           ver = case attr "version" of
                   "1.0" -> XMPPVersion10
                   _ -> XMPPVersionNone
