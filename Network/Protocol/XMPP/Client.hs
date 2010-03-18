@@ -54,7 +54,7 @@ type Password = String
 clientConnect :: JID -> HostName -> PortID -> IO ConnectedClient
 clientConnect jid host port = do
 	handle <- connectTo host port
-	stream <- S.beginStream jid handle
+	stream <- S.beginStream jid "jabber:client" handle
 	return $ ConnectedClient jid stream
 
 clientAuthenticate :: ConnectedClient -> JID -> Username -> Password -> IO Client

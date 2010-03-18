@@ -18,8 +18,10 @@ module Network.Protocol.XMPP.Stream (
 	 Stream (
 	 	 streamLanguage
 	 	,streamVersion
+		,streamID
 	 	,streamFeatures
 	 	)
+	,XMPPStreamID(XMPPStreamID)
 	,StreamFeature (
 		 FeatureStartTLS
 		,FeatureSASL
@@ -36,6 +38,7 @@ module Network.Protocol.XMPP.Stream (
 import qualified System.IO as IO
 import Data.AssocList (lookupDef)
 import Data.Char (toUpper)
+import Control.Applicative
 
 -- XML Parsing
 import Text.XML.HXT.Arrow ((>>>))
@@ -59,9 +62,11 @@ data Stream = Stream
 	{
 		 streamHandle   :: Handle
 		,streamJID      :: JID
+		,streamNS       :: String
 		,streamParser   :: SAX.Parser
 		,streamLanguage :: XMLLanguage
 		,streamVersion  :: XMPPVersion
+		,streamID       :: XMPPStreamID
 		,streamFeatures :: [StreamFeature]
 	}
 
@@ -80,6 +85,8 @@ newtype XMLLanguage = XMLLanguage String
 data XMPPVersion = XMPPVersion Int Int
 	deriving (Show, Eq)
 
+newtype XMPPStreamID = XMPPStreamID String
+
 data Handle =
 	  PlainHandle IO.Handle
 	| SecureHandle IO.Handle (GnuTLS.Session GnuTLS.Client)
@@ -87,35 +94,40 @@ data Handle =
 ------------------------------------------------------------------------------
 
 restartStream :: Stream -> IO Stream
-restartStream s = beginStream' (streamJID s) (streamHandle s)
+restartStream s = beginStream' (streamJID s) (streamNS s) (streamHandle s)
 
-beginStream :: JID -> IO.Handle -> IO Stream
-beginStream jid rawHandle = do
+beginStream :: JID -> String -> IO.Handle -> IO Stream
+beginStream jid ns rawHandle = do
 	IO.hSetBuffering rawHandle IO.NoBuffering
 	
-	plainStream <- beginStream' jid (PlainHandle rawHandle)
-	
-	putTree plainStream $ Util.mkElement ("", "starttls")
-		[("", "xmlns", "urn:ietf:params:xml:ns:xmpp-tls")]
-		[]
-	getTree plainStream
-	
-	session <- GnuTLS.tlsClient [
-		 GnuTLS.handle GnuTLS.:= rawHandle
-		,GnuTLS.priorities GnuTLS.:= [GnuTLS.CrtX509]
-		,GnuTLS.credentials GnuTLS.:= GnuTLS.certificateCredentials
-		]
-	GnuTLS.handshake session
-	beginStream' jid (SecureHandle rawHandle session)
+	plainStream <- beginStream' jid ns (PlainHandle rawHandle)
 
-beginStream' :: JID -> Handle -> IO Stream
-beginStream' jid h = do
+	let startTLS = do
+	      putTree plainStream $ Util.mkElement ("", "starttls")
+				    [("", "xmlns", "urn:ietf:params:xml:ns:xmpp-tls")]
+				    []
+	      getTree plainStream
+	
+	      session <- GnuTLS.tlsClient [
+				GnuTLS.handle GnuTLS.:= rawHandle
+			       ,GnuTLS.priorities GnuTLS.:= [GnuTLS.CrtX509]
+			       ,GnuTLS.credentials GnuTLS.:= GnuTLS.certificateCredentials
+			       ]
+	      GnuTLS.handshake session
+	      beginStream' jid ns (SecureHandle rawHandle session)
+
+	case streamCanTLS plainStream of
+	  True -> startTLS
+	  False -> return plainStream
+
+beginStream' :: JID -> String -> Handle -> IO Stream
+beginStream' jid ns h = do
 	-- Since only the opening tag should be written, normal XML
 	-- serialization cannot be used. Be careful to escape any embedded
 	-- attributes.
 	let xmlHeader =
 		"<?xml version='1.0'?>\n" ++
-		"<stream:stream xmlns='jabber:client'" ++
+		"<stream:stream xmlns='" ++ DOM.attrEscapeXml ns ++ "'" ++
 		" to='" ++ (DOM.attrEscapeXml . jidFormat) jid ++ "'" ++
 		" version='1.0'" ++
 		" xmlns:stream='http://etherx.jabber.org/streams'>"
@@ -123,13 +135,17 @@ beginStream' jid h = do
 	parser <- SAX.mkParser
 	hPutStr h xmlHeader
 	initialEvents <- readEventsUntil startOfStream h parser
-	featureTree <- getTree' h parser
 	
 	let startStreamEvent = last initialEvents
-	let (language, version) = parseStartStream startStreamEvent
-	let features = parseFeatures featureTree
+	let (language, version, streamID) = parseStartStream startStreamEvent
+	features <- (case ns of
+		       "jabber:client" ->
+			   parseFeatures <$> getTree' h parser
+		       _ ->
+			   return []
+		    )
 	
-	return $ Stream h jid parser language version features
+	return $ Stream h jid ns parser language version streamID features
 	
 	where
 		streamName = Util.mkQName "http://etherx.jabber.org/streams" "stream"
@@ -139,8 +155,15 @@ beginStream' jid h = do
 				streamName == Util.convertQName elemName
 			_ -> False
 
-parseStartStream :: SAX.Event -> (XMLLanguage, XMPPVersion)
-parseStartStream e = (XMLLanguage "en", XMPPVersion 1 0) -- TODO
+parseStartStream :: SAX.Event -> (XMLLanguage, XMPPVersion, XMPPStreamID)
+parseStartStream e = (XMLLanguage lang, XMPPVersion 1 0, XMPPStreamID id)
+    where SAX.BeginElement _ attrs = e
+	  attr name = maybe "" SAX.attributeValue $
+		      m1 $ filter ((name ==) . SAX.qnameLocalName . SAX.attributeName) attrs
+	      where m1 (x:_) = Just x
+		    m1 _ = Nothing
+	  lang = attr "lang"
+	  id = attr "id"
 
 parseFeatures :: DOM.XmlTree -> [StreamFeature]
 parseFeatures t =
@@ -175,6 +198,14 @@ parseFeatureSASL t = let
 		>>> A.getText) t
 	
 	in FeatureSASL $ map (map toUpper) mechanisms
+
+streamCanTLS :: Stream -> Bool
+streamCanTLS = (> 0) . length .
+	       filter (\feature ->
+			   case feature of
+			     FeatureStartTLS _ -> True
+			     _ -> False
+		      ) . streamFeatures
 
 -------------------------------------------------------------------------------
 
