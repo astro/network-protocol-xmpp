@@ -33,10 +33,10 @@ import qualified Text.XML.LibXML.SAX as SAX
 
 -- This function assumes the input list is valid. No validation is performed.
 eventsToTree :: [SAX.Event] -> DOM.XmlTree
-eventsToTree es = XN.mkRoot [] (eventsToTrees es)
+eventsToTree = XN.mkRoot [] . eventsToTrees
 
 eventsToTrees :: [SAX.Event] -> [DOM.XmlTree]
-eventsToTrees es = concatMap blockToTrees (splitBlocks es)
+eventsToTrees = concatMap blockToTrees . splitBlocks
 
 -- Split event list into a sequence of "blocks", which are the events including
 -- and between a pair of tags. <start><start2/></start> and <start/> are both

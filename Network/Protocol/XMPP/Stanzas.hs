@@ -22,7 +22,7 @@ module Network.Protocol.XMPP.Stanzas (
 	) where
 
 import Text.XML.HXT.DOM.Interface (XmlTree)
-import Text.XML.HXT.Arrow ((>>>), (&&&))
+import Text.XML.HXT.Arrow ((>>>))
 import qualified Text.XML.HXT.Arrow as A
 
 import Network.Protocol.XMPP.JID (JID, jidFormat, jidParse)
@@ -62,7 +62,7 @@ data Stanza = Stanza
 	deriving (Show, Eq)
 
 stanzaTypeMap :: [((String, String, String), StanzaType)]
-stanzaTypeMap = mkStanzaTypeMap $ [
+stanzaTypeMap = mkStanzaTypeMap [
 	 ("jabber:client", "message", [
 		 ("normal",    MessageNormal)
 		,("chat",      MessageChat)
@@ -134,7 +134,7 @@ stanzaToTree s = let
 		,autoAttr "from" (maybe "" jidFormat . stanzaFrom)
 		,autoAttr "id" stanzaID
 		,autoAttr "xml:lang" stanzaLang
-		,\_ -> [("", "type", typeString)]
+		,const [("", "type", typeString)]
 		]
 	attrs = concatMap ($ s) attrs'
 	in mkElement (ns, elementName) attrs (stanzaPayloads s)

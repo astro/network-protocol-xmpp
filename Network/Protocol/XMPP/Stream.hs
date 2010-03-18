@@ -39,9 +39,10 @@ import qualified System.IO as IO
 import Data.AssocList (lookupDef)
 import Data.Char (toUpper)
 import Control.Applicative
+import Control.Monad (when)
 
 -- XML Parsing
-import Text.XML.HXT.Arrow ((>>>))
+import Text.XML.HXT.Arrow ((>>>), (&&&))
 import qualified Text.XML.HXT.Arrow as A
 import qualified Text.XML.HXT.DOM.Interface as DOM
 import qualified Text.XML.HXT.DOM.XmlNode as XN
@@ -176,12 +177,12 @@ parseFeature :: DOM.XmlTree -> StreamFeature
 parseFeature t = lookupDef FeatureUnknown qname [
 	 (("urn:ietf:params:xml:ns:xmpp-tls", "starttls"), parseFeatureTLS)
 	,(("urn:ietf:params:xml:ns:xmpp-sasl", "mechanisms"), parseFeatureSASL)
-	,(("http://jabber.org/features/iq-register", "register"), (\_ -> FeatureRegister))
-	,(("urn:ietf:params:xml:ns:xmpp-bind", "bind"), (\_ -> FeatureBind))
-	,(("urn:ietf:params:xml:ns:xmpp-session", "session"), (\_ -> FeatureSession))
+	,(("http://jabber.org/features/iq-register", "register"), const FeatureRegister)
+	,(("urn:ietf:params:xml:ns:xmpp-bind", "bind"), const FeatureBind)
+	,(("urn:ietf:params:xml:ns:xmpp-session", "session"), const FeatureSession)
 	] t
 	where
-		qname = maybe ("", "") (\n -> (DOM.namespaceUri n, DOM.localPart n)) (XN.getName t)
+		qname = maybe ("", "") (DOM.namespaceUri &&& DOM.localPart) (XN.getName t)
 
 parseFeatureTLS :: DOM.XmlTree -> StreamFeature
 parseFeatureTLS t = FeatureStartTLS True -- TODO: detect whether or not required
@@ -263,11 +264,9 @@ hGetChar :: Handle -> IO Char
 hGetChar (PlainHandle h) = IO.hGetChar h
 hGetChar (SecureHandle h session) = allocaBytes 1 $ \ptr -> do
 	pending <- GnuTLS.tlsCheckPending session
-	if pending == 0
-		then do
-			IO.hWaitForInput h (-1)
-			return ()
-		else return ()
+	when (pending == 0) $
+	     do IO.hWaitForInput h (-1)
+                return ()
 	
 	len <- GnuTLS.tlsRecv session ptr 1
 	[char] <- peekCAStringLen (ptr, len)
