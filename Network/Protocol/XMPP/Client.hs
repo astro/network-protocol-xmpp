@@ -38,6 +38,7 @@ import qualified Network.Protocol.XMPP.SASL as SASL
 import qualified Network.Protocol.XMPP.Stream as S
 import Network.Protocol.XMPP.Util (mkElement, mkQName)
 import Network.Protocol.XMPP.Stanzas (Stanza, stanzaToTree)
+import Network.Protocol.XMPP.Connection
 
 data ConnectedClient = ConnectedClient JID S.Stream
 
@@ -105,11 +106,6 @@ clientBind c = do
 
 -------------------------------------------------------------------------------
 
-putTree :: Client -> XmlTree -> IO ()
-putTree = S.putTree . clientStream
-
-getTree :: Client -> IO XmlTree
-getTree = S.getTree . clientStream
-
-putStanza :: Client -> Stanza -> IO ()
-putStanza c = (putTree c) . stanzaToTree
+instance Connection Client where
+    getTree = S.getTree . clientStream
+    putTree = S.putTree . clientStream
