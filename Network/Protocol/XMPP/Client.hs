@@ -22,9 +22,6 @@ module Network.Protocol.XMPP.Client (
 	,clientBind
 	,clientJID
 	,clientServerJID
-	,putTree
-	,getTree
-	,putStanza
 	) where
 
 import Network (HostName, PortID, connectTo)

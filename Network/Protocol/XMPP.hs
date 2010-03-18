@@ -18,10 +18,12 @@ module Network.Protocol.XMPP (
 	 module Network.Protocol.XMPP.JID
 	,module Network.Protocol.XMPP.Client
 	,module Network.Protocol.XMPP.Component
+	,module Network.Protocol.XMPP.Connection
 	,module Network.Protocol.XMPP.Stanzas
 	) where
 
 import Network.Protocol.XMPP.JID
 import Network.Protocol.XMPP.Client
 import Network.Protocol.XMPP.Component
+import Network.Protocol.XMPP.Connection
 import Network.Protocol.XMPP.Stanzas

@@ -21,9 +21,6 @@ module Network.Protocol.XMPP.Component (
 	,componentConnect
 	,componentAuthenticate
 	,componentJID
-	,putTree
-	,getTree
-	,putStanza
 	) where
 
 import Control.Monad (when)
