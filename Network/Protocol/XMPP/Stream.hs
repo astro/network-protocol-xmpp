@@ -55,9 +55,6 @@ import Foreign.C (peekCAStringLen)
 import Network.Protocol.XMPP.JID (JID, jidFormat)
 import qualified Network.Protocol.XMPP.Util as Util
 
-maxXMPPVersion :: XMPPVersion
-maxXMPPVersion = XMPPVersion 1 0
-
 data Stream = Stream
 	{
 		 streamHandle   :: Handle
@@ -82,7 +79,8 @@ data StreamFeature =
 newtype XMLLanguage = XMLLanguage String
 	deriving (Show, Eq)
 
-data XMPPVersion = XMPPVersion Int Int
+data XMPPVersion = XMPPVersionNone
+                 | XMPPVersion10
 	deriving (Show, Eq)
 
 newtype XMPPStreamID = XMPPStreamID String
@@ -138,12 +136,9 @@ beginStream' jid ns h = do
 	
 	let startStreamEvent = last initialEvents
 	let (language, version, streamID) = parseStartStream startStreamEvent
-	features <- (case ns of
-		       "jabber:client" ->
-			   parseFeatures <$> getTree' h parser
-		       _ ->
-			   return []
-		    )
+	features <- if version == XMPPVersion10
+                    then parseFeatures <$> getTree' h parser
+                    else return []
 	
 	return $ Stream h jid ns parser language version streamID features
 	
@@ -156,7 +151,7 @@ beginStream' jid ns h = do
 			_ -> False
 
 parseStartStream :: SAX.Event -> (XMLLanguage, XMPPVersion, XMPPStreamID)
-parseStartStream e = (XMLLanguage lang, XMPPVersion 1 0, XMPPStreamID id)
+parseStartStream e = (XMLLanguage lang, ver, XMPPStreamID id)
     where SAX.BeginElement _ attrs = e
 	  attr name = maybe "" SAX.attributeValue $
 		      m1 $ filter ((name ==) . SAX.qnameLocalName . SAX.attributeName) attrs
@@ -164,6 +159,9 @@ parseStartStream e = (XMLLanguage lang, XMPPVersion 1 0, XMPPStreamID id)
 		    m1 _ = Nothing
 	  lang = attr "lang"
 	  id = attr "id"
+          ver = case attr "version" of
+                  "1.0" -> XMPPVersion10
+                  _ -> XMPPVersionNone
 
 parseFeatures :: DOM.XmlTree -> [StreamFeature]
 parseFeatures t =
